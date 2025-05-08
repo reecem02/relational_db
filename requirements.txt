@@ -1,0 +1,7 @@
+# shows python dependencies for the project
+
+pandas
+biopython
+sqlalchemy
+openpyxl
+pymysql

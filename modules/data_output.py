@@ -2,8 +2,8 @@ import pandas as pd
 from sqlalchemy import create_engine
 import yaml
 
-# Load configuration (from config.yaml)
-with open("config.yaml", "r") as file:
+# Load configuration (from config/config.yaml)
+with open("config/config.yaml", "r") as file:
     config = yaml.safe_load(file)
 
 db_config = config["database"]

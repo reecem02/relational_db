@@ -1,7 +1,11 @@
+import os
 from modules.data_import import import_metadata, import_fasta
 from modules.data_output import display_data_by_lab_id, print_row_key_value
 from modules.search import search_db
 from modules.db_info import get_database_info  # Import the new function
+from modules.delete import delete_lab_id, delete_metadata, delete_fasta
+from modules.delete import display_lab_id_data
+from modules.export_utils import select_rows, export_table, export_pretty
 
 
 def import_data_ui():
@@ -27,40 +31,97 @@ def search_data_ui():
         print("Search term cannot be empty.")
         return
 
-    # Perform the search
     results = search_db(search_term)
 
     if results.empty:
-        print(f"No results found for: {search_term}")
+        print("No results found.")
         return
 
-    # Display the first 5 results
-    print("\n-- Search Results (First 5 Entries) --")
-    for _, row in results.head(5).iterrows():
-        print_row_key_value(row.to_dict())
+    export_prompt(results)
 
-    # Check if there are more results
-    if len(results) > 5:
-        print("\nMore than 5 results found.")
-        choice = input("Would you like to [1] View all results or [2] Export to Excel? (1/2): ").strip()
-        if choice == "1":
-            print("\n-- All Search Results --")
-            for _, row in results.iterrows():
-                print_row_key_value(row.to_dict())
-        elif choice == "2":
-            file_name = input("Enter the file name to save the results (e.g., results.xlsx): ").strip()
-            results.to_excel(file_name, index=False)
-            print(f"Results exported to {file_name}.")
 
-def export_data_ui():
-    print("\n-- Export Data --")
-    print("This feature allows exporting search results to CSV.")
-    file_name = input("Enter a name for the export file (e.g., results.csv):\n> ").strip()
-    if hasattr(export_data_ui, "last_results") and export_data_ui.last_results is not None:
-        export_data_ui.last_results.to_csv(file_name, index=False)
-        print(f"Results exported to {file_name}.")
+def export_prompt(results):
+    if results.empty:
+        return
+    choice = input("\nWould you like to export these results? (y/n): ").strip().lower()
+    if choice != 'y':
+        return
+
+    # Select rows to export
+    export_df = select_rows(results)
+
+    # Choose format
+    fmt = input("Export as [1] CSV, [2] Excel, or [3] TXT? (1/2/3): ").strip()
+    if fmt == '1':
+        ext, file_type = 'csv', 'csv'
+    elif fmt == '2':
+        ext, file_type = 'xlsx', 'excel'
+    elif fmt == '3':
+        ext, file_type = 'txt', 'txt'
     else:
-        print("No data available to export. Please run a search first.")
+        print("Invalid format, exporting as CSV.")
+        ext, file_type = 'csv', 'csv'
+
+    # Choose location
+    folder = input("Export to [d]efault folder (exported_files/) or [c]ustom path? (d/c): ").strip().lower()
+    if folder == 'd':
+        os.makedirs('exported_files', exist_ok=True)
+        file_name = input(f"Enter file name (.{ext} will be added if not present): ").strip()
+        if not file_name.endswith(f".{ext}"):
+            file_name += f".{ext}"
+        file_path = os.path.join('exported_files', file_name)
+    else:
+        file_path = input(f"Enter full file path (including .{ext}): ").strip()
+
+    # Append or overwrite
+    append = False
+    if os.path.exists(file_path):
+        ao = input("File exists. [a]ppend or [o]verwrite? (a/o): ").strip().lower()
+        append = (ao == 'a')
+
+    # Export
+    if file_type in ('csv', 'excel'):
+        export_table(export_df, file_path, file_type, append=append)
+    else:
+        export_pretty(export_df, file_path, append=append)
+
+def delete_data_ui():
+    print("\n-- Delete Data --")
+    lab_id = input("Enter the Uehling Lab ID to delete (e.g., UL001): ").strip()
+    if not lab_id:
+        print("Lab ID cannot be empty.")
+        return
+
+    # Show current data for confirmation
+    print("\nCurrent data for this Lab ID:")
+    display_lab_id_data(lab_id)
+
+    print("\nWhat would you like to delete?")
+    print("1) Delete the ENTIRE Uehling Lab ID (all metadata and FASTA data)")
+    print("2) Delete ONLY the METADATA for this Lab ID")
+    print("3) Delete ONLY the FASTA data for this Lab ID")
+    print("4) Return to main menu")
+    choice = input("Enter your choice (1/2/3/4): ").strip()
+
+    if choice == "1":
+        confirm = input(f"Are you sure you want to permanently delete ALL data for Lab ID '{lab_id}'? (y/n): ").strip().lower()
+        if confirm == "y":
+            delete_lab_id(lab_id)
+            print(f"All data for Lab ID '{lab_id}' has been deleted.")
+    elif choice == "2":
+        confirm = input(f"Are you sure you want to permanently delete ONLY the METADATA for Lab ID '{lab_id}'? (y/n): ").strip().lower()
+        if confirm == "y":
+            delete_metadata(lab_id)
+            print(f"Metadata for Lab ID '{lab_id}' has been deleted.")
+    elif choice == "3":
+        confirm = input(f"Are you sure you want to permanently delete ONLY the FASTA data for Lab ID '{lab_id}'? (y/n): ").strip().lower()
+        if confirm == "y":
+            delete_fasta(lab_id)
+            print(f"FASTA data for Lab ID '{lab_id}' has been deleted.")
+    elif choice == "4":
+        print("Returning to main menu.")
+    else:
+        print("Invalid choice. Returning to main menu.")
 
 
 def help_ui():
@@ -82,19 +143,12 @@ def display_results(results):
         # Save results for export
         export_data_ui.last_results = results
 
-
-def export_prompt(results):
-    if not results.empty:
-        choice = input("\nWould you like to export these results? (y/n): ").strip().lower()
-        if choice == 'y':
-            export_data_ui()
-
 def main():
     while True:
         print("\nWelcome to the Fungal Research Database")
         print("1) Import Data")
         print("2) Search Data")
-        print("3) Export Data")
+        print("3) Delete Data")
         print("4) Help")
         print("5) Database Information")
         print("6) Exit")
@@ -105,11 +159,11 @@ def main():
         elif choice == "2":
             search_data_ui()
         elif choice == "3":
-            export_data_ui()
+            delete_data_ui()
         elif choice == "4":
             help_ui()
         elif choice == "5":
-            get_database_info() 
+            get_database_info()
         elif choice == "6":
             print("Goodbye!")
             break

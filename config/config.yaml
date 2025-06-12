@@ -1,6 +1,6 @@
 database:
   type: "sqlite"
-  path: "./fungal_db.sqlite"
+  path: "./database/fungal_db.sqlite"
 
 file_paths:
   metadata: "example_files/example1.xlsx"

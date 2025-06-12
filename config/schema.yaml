@@ -1,0 +1,26 @@
+metadata_columns:
+  - Uehling Lab ID
+  - Sample Location Plate
+  - GC3F Submission Sample ID
+  - Alternate ID 1
+  - Alternate ID 2
+  - Lab Unique ID 3
+  - Extracted by
+  - Top ITS Blast Hit
+  - ITS Top Hit Similarity
+  - ITS Taxonomy Comments
+  - Top 16S Blast Hit
+  - 16S Top Hit Similarity
+  - 16S Taxonomy Comments
+  - Project Funding
+  - Latitude
+  - Longitude
+  - Location ID
+  - DNA Extraction Method
+  - Extraction Date
+
+genomic_columns:
+  - lab_id
+  - key
+  - value
+  - seq_order

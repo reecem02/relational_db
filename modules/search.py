@@ -2,69 +2,144 @@ import pandas as pd
 from sqlalchemy import create_engine, inspect
 import os
 import yaml
+from modules.utils import load_schema
+import re
+
+schema = load_schema()
 
 # Load DB path
-with open("config.yaml", "r") as file:
+with open("config/config.yaml", "r") as file:
     config = yaml.safe_load(file)
 
 DB_PATH = os.path.expanduser(config["database"]["path"])
 engine = create_engine(f"sqlite:///{DB_PATH}")
 
+def highlight_matches(seq, keyword, context=40, max_snippets=2):
+    """Return up to max_snippets matches of keyword in seq, with up to `context` chars before/after each match."""
+    import re
+    matches = [m for m in re.finditer(re.escape(keyword), seq, re.IGNORECASE)]
+    if not matches:
+        return None
+    snippets = []
+    for m in matches[:max_snippets]:
+        start = max(m.start() - context, 0)
+        end = min(m.end() + context, len(seq))
+        prefix = "..." if start > 0 else ""
+        suffix = "..." if end < len(seq) else ""
+        snippet = f"{prefix}{seq[start:m.start()]}[{seq[m.start():m.end()]}]{seq[m.end():end]}{suffix}"
+        snippets.append(snippet)
+    if len(matches) > max_snippets:
+        snippets.append("...more matches...")
+    return " | ".join(snippets)
+
 def search_db(keyword):
+    """
+    Search all tables for a keyword. If the keyword matches a Uehling Lab ID (ULXXX),
+    return all metadata for that Lab ID and the first 10 FASTA sequences (first 2 lines of each).
+    """
     try:
-        # Get all table names
-        inspector = inspect(engine)
-        table_names = inspector.get_table_names()
+        is_lab_id = keyword.upper().startswith("UL") and keyword[2:].isdigit()
 
-        results = []
+        if is_lab_id:
+            # Fetch all metadata for this lab_id
+            query_metadata = """
+                SELECT key, value
+                FROM Metadata
+                WHERE lab_id = :lab_id
+            """
+            metadata = pd.read_sql(query_metadata, con=engine, params={"lab_id": keyword})
+            metadata['type'] = 'metadata'
 
-        # Search each table
-        for table in table_names:
-            # Get column names for the table
-            columns = [col["name"] for col in inspector.get_columns(table)]
+            # Fetch first 10 FASTA sequences for this lab_id
+            query_genomic = """
+                SELECT key, value
+                FROM GenomicData
+                WHERE lab_id = :lab_id
+                LIMIT 10
+            """
+            fasta = pd.read_sql(query_genomic, con=engine, params={"lab_id": keyword})
+            fasta['type'] = 'fasta'
 
-            # Build the WHERE clause to search all columns
-            where_clause = " OR ".join([f'"{col}" LIKE :keyword' for col in columns])
+            print(f"\nMetadata for {keyword}:")
+            if not metadata.empty:
+                print(metadata[['key', 'value']].to_string(index=False))
+            else:
+                print("No metadata found.")
 
-            # Query the table
-            query = f"""
-                SELECT *, '{table}' AS source_table
-                FROM {table}
-                WHERE {where_clause}
-                ORDER BY
-                    CASE
-                        WHEN "{columns[0]}" LIKE :exact_keyword THEN 1
-                        ELSE 2
-                    END
+            print(f"\nFASTA sequences for {keyword} (first 2 lines of each):")
+            if not fasta.empty:
+                for idx, row in fasta.iterrows():
+                    seq = row['value']
+                    lines = [seq[i:i+60] for i in range(0, len(seq), 60)]
+                    display_lines = lines[:2]
+                    print(f">{row['key']}")
+                    for l in display_lines:
+                        print(l)
+                    if len(lines) > 2:
+                        print("...")
+            else:
+                print("No FASTA sequences found.")
+
+            # ---- RETURN FOR EXPORT ----
+            results = pd.concat([metadata, fasta], ignore_index=True, sort=False)
+            return results
+        else: 
+            print(f"Searching for keyword: {keyword}")
+            # Otherwise, search all tables for the keyword
+            results = []
+
+            # Search Metadata
+            query_metadata = """
+                SELECT 'Metadata' as source, lab_id, key, value
+                FROM Metadata
+                WHERE lab_id LIKE :kw OR key LIKE :kw OR value LIKE :kw
+            """
+            results.append(pd.read_sql(query_metadata, con=engine, params={"kw": f"%{keyword}%"}))
+
+            # Search GenomicData
+            cols = ', '.join(schema["genomic_columns"])
+            query_genomic = f"""
+                SELECT {cols}
+                FROM GenomicData
+                WHERE lab_id LIKE :kw OR key LIKE :kw OR value LIKE :kw
+                ORDER BY seq_order
                 LIMIT 5
             """
-            print(f"Executing query on table '{table}': {query}")  # Debugging log
-            table_results = pd.read_sql(query, con=engine, params={"keyword": f"%{keyword}%", "exact_keyword": keyword})
+            results.append(pd.read_sql(query_genomic, con=engine, params={"kw": f"%{keyword}%"}))
 
-            if not table_results.empty:
-                results.append(table_results)
+            # Combine and display results
+            all_results = pd.concat(results, ignore_index=True)
+            all_results = all_results.dropna(how='all', subset=[col for col in all_results.columns if col != 'source']) # Drops rows where all colmns except 'source' are empty
+            
+            # Remove 'source' and 'seq_order' columns for display
+            display_cols = [col for col in all_results.columns if col not in ('source', 'seq_order')]
+            display_df = all_results[display_cols]
 
-        # Combine results from all tables
-        if not results:
-            print(f"No matches found for keyword: {keyword}")
-            return pd.DataFrame()  # Return an empty DataFrame if no results are found
+            display_df = display_df.dropna(how='all')
 
-        combined_results = pd.concat(results, ignore_index=True)
+            if 'value' in display_df.columns:
+                def smart_truncate(row):
+                    val = str(row['value'])
+                    if pd.isna(val):
+                        return val
+                    # Only highlight if the search term is in the value (for genomic data)
+                    if keyword.lower() in val.lower():
+                        return highlight_matches(val, keyword, context=40, max_snippets=2)
+                    else:
+                        # fallback: show first 40 chars as before
+                        return val[:40] + '...' if len(val) > 40 else val
 
-        # Sort by relevance and extraction_date
-        if "extraction_date" in combined_results.columns:
-            combined_results.sort_values(by=["source_table", "extraction_date"], inplace=True)
+                display_df.loc[:, 'value'] = display_df.apply(smart_truncate, axis=1)
+                display_df = display_df.dropna(subset=['key', 'value'], how='all')
 
-        return combined_results
+            if not display_df.empty:
+                print(f"Results for keyword '{keyword}':")
+                print(display_df.head(10).to_string(index=False))
+            else:
+                print(f"No results found for: {keyword}")
+            return display_df
 
     except Exception as e:
         print(f"Error querying data: {e}")
-        return pd.DataFrame()  # Return an empty DataFrame if an error occurs
 
-def print_table_schemas():
-    inspector = inspect(engine)
-    table_names = inspector.get_table_names()
-
-    for table in table_names:
-        columns = [col["name"] for col in inspector.get_columns(table)]
-        print(f"Table '{table}' columns: {columns}")
+    

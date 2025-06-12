@@ -1,6 +1,7 @@
 import os
 from sqlalchemy import text, inspect
 from modules.data_output import engine
+from modules.utils import load_schema
 
 
 def get_database_info():
@@ -23,8 +24,10 @@ def get_database_info():
             genomic_count = genomic_info["count"]
             genomic_last_uploaded = genomic_info["last_uploaded"]
 
+        with open("config/config.yaml", "r") as file:
+            config = yaml.safe_load(file)
         # Calculate database size
-        db_path = os.path.expanduser("~/fungal_db.sqlite")  # Update this if using MySQL
+        db_path = os.path.expanduser(config["database"]["path"])  # Update this if using MySQL
         if os.path.exists(db_path):
             db_size = os.path.getsize(db_path) / (1024 ** 3)  # Convert bytes to gigabytes
         else:
@@ -47,11 +50,13 @@ def get_database_info():
     except Exception as e:
         print(f"Error retrieving database information: {e}")
 
-
 def ensure_file_uploaded_field():
     """
     Ensure the 'file_uploaded' field exists in the Metadata and GenomicData tables.
     """
+    schema = load_schema()
+    metadata_columns = schema["metadata_columns"]
+
     print("Checking for 'file_uploaded' field in tables...")
     try:
         inspector = inspect(engine)

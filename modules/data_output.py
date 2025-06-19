@@ -1,13 +1,15 @@
 import pandas as pd
 from sqlalchemy import create_engine
 import yaml
+import os
 
 # Load configuration (from config/config.yaml)
 with open("config/config.yaml", "r") as file:
     config = yaml.safe_load(file)
 
-db_config = config["database"]
-DB_URL = "mysql+pymysql://root:mushroom@localhost:3306/fungal_db"
+# Load DB Path 
+DB_PATH = os.path.expanduser(config["database"]["path"])  # or from config/config.yaml
+DB_URL = f"sqlite:///{DB_PATH}"
 engine = create_engine(DB_URL)
 
 # Function to display data for a specific lab_id

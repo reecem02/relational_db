@@ -4,6 +4,7 @@ CREATE TABLE Metadata (
     lab_id TEXT NOT NULL,
     key TEXT NOT NULL,
     value TEXT,
+    file_uploaded DATETIME DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(lab_id, key)
 );
 
@@ -13,5 +14,7 @@ CREATE TABLE GenomicData (
     lab_id TEXT NOT NULL,
     key TEXT NOT NULL,
     value TEXT,
+    seq_order INTEGER,
+    file_uploaded DATETIME DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(lab_id, key)
 );

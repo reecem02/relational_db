@@ -6,6 +6,29 @@ from modules.delete import delete_lab_id, delete_metadata, delete_fasta
 from modules.delete import display_lab_id_data
 from modules.export_utils import export_table, export_pretty
 import os
+import sqlite3
+
+def initialize_database():
+    db_path = "database/fungal_db.sqlite"
+    schema_path = "database/schema.sql"
+    # Connect to the database
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+
+    # Check if Metadata table exists
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='Metadata';")
+    exists = cursor.fetchone()
+    # Check if GenomicData table exists
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='GenomicData';")
+    exists_genomic = cursor.fetchone()
+
+    if not exists:
+        print("Initializing database schema...")
+        with open(schema_path, "r") as f:
+            schema_sql = f.read()
+        conn.executescript(schema_sql)
+        print("Database initialized.")
+    conn.close()
 
 def import_data_ui():
     print("\n--Import Data--")
@@ -159,4 +182,5 @@ def main():
             print("Invalid selection. Please try again.")
 
 if __name__ == "__main__":
+    initialize_database()
     main()

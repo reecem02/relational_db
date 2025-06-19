@@ -1,12 +1,11 @@
-import os
 from modules.data_import import import_metadata, import_fasta
 from modules.data_output import display_data_by_lab_id, print_row_key_value
 from modules.search import search_db
 from modules.db_info import get_database_info  # Import the new function
 from modules.delete import delete_lab_id, delete_metadata, delete_fasta
 from modules.delete import display_lab_id_data
-from modules.export_utils import select_rows, export_table, export_pretty
-
+from modules.export_utils import export_table, export_pretty
+import os
 
 def import_data_ui():
     print("\n--Import Data--")
@@ -31,12 +30,14 @@ def search_data_ui():
         print("Search term cannot be empty.")
         return
 
+    # Perform the search
     results = search_db(search_term)
 
     if results.empty:
         print("No results found.")
         return
 
+    # Prompt user to export results
     export_prompt(results)
 
 
@@ -46,9 +47,6 @@ def export_prompt(results):
     choice = input("\nWould you like to export these results? (y/n): ").strip().lower()
     if choice != 'y':
         return
-
-    # Select rows to export
-    export_df = select_rows(results)
 
     # Choose format
     fmt = input("Export as [1] CSV, [2] Excel, or [3] TXT? (1/2/3): ").strip()
@@ -81,9 +79,9 @@ def export_prompt(results):
 
     # Export
     if file_type in ('csv', 'excel'):
-        export_table(export_df, file_path, file_type, append=append)
+        export_table(results, file_path, file_type, append=append)
     else:
-        export_pretty(export_df, file_path, append=append)
+        export_pretty(results, file_path, append=append)
 
 def delete_data_ui():
     print("\n-- Delete Data --")
@@ -128,20 +126,10 @@ def help_ui():
     print("\n-- Help --")
     print("1) Import Data: Upload Excel or Fasta files from the example_files folder.")
     print("2) Search Data: Find entries by lab ID, extraction method, or date.")
-    print("3) Export Data: Save search results as CSV after running a query.")
-    print("4) Exit: Quit the program.")
+    print("3) Delete Data: Search a lab ID you want to delete, then select what information you want to deelte.")
+    print("5) Database Information: View amount of entries in metadata and genomic data tables, last uploaded date, and total database size.")
+    print("6) Exit: Quit the program.")
     return
-
-def display_results(results):
-    if results.empty:
-        print("No results found.")
-    else:
-        print("\n-- Search Results --")
-        for _, row in results.iterrows():
-            print_row_key_value(row.to_dict())
-
-        # Save results for export
-        export_data_ui.last_results = results
 
 def main():
     while True:

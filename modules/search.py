@@ -124,7 +124,7 @@ def search_db(keyword):
                         return val
                     # Only highlight if the search term is in the value (for genomic data)
                     if keyword.lower() in val.lower():
-                        return highlight_matches(val, keyword, context=40, max_snippets=2)
+                        return highlight_matches(val, keyword, context=10, max_snippets=2)
                     else:
                         # fallback: show first 40 chars as before
                         return val[:40] + '...' if len(val) > 40 else val
@@ -137,6 +137,7 @@ def search_db(keyword):
                 print(display_df.head(10).to_string(index=False))
             else:
                 print(f"No results found for: {keyword}")
+            display_df['type'] = 'metadata'  # or another appropriate value
             return display_df
 
     except Exception as e:

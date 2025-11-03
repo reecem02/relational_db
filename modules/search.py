@@ -1,18 +1,13 @@
 import pandas as pd
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import inspect
 import os
 import yaml
-from modules.utils import load_schema
+from modules.utils import load_schema, engine
 import re
 
 schema = load_schema()
 
-# Load DB path
-with open("config/config.yaml", "r") as file:
-    config = yaml.safe_load(file)
-
-DB_PATH = os.path.expanduser(config["database"]["path"])
-engine = create_engine(f"sqlite:///{DB_PATH}")
+schema = load_schema()
 
 def highlight_matches(seq, keyword, context=40, max_snippets=2):
     """Return up to max_snippets matches of keyword in seq, with up to `context` chars before/after each match."""

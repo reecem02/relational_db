@@ -12,6 +12,8 @@ def get_database_info():
     print("\n-- Database Information --")
     try:
         # Query Metadata table
+        # Ensure indexes exist for faster queries on existing DBs
+        ensure_indexes()
         metadata_query = text("SELECT COUNT(*) AS count, MAX(`file_uploaded`) AS last_uploaded FROM Metadata")
         with engine.connect() as connection:
             metadata_info = connection.execute(metadata_query).mappings().fetchone()
@@ -50,6 +52,26 @@ def get_database_info():
 
     except Exception as e:
         print(f"Error retrieving database information: {e}")
+
+
+def ensure_indexes():
+    """
+    Create indexes used by the application if they do not already exist.
+    This is safe to call on an existing SQLite DB because we use IF NOT EXISTS.
+    """
+    try:
+        idx_stmts = [
+            "CREATE INDEX IF NOT EXISTS idx_metadata_lab_id ON Metadata(lab_id)",
+            "CREATE INDEX IF NOT EXISTS idx_metadata_key ON Metadata(key)",
+            "CREATE INDEX IF NOT EXISTS idx_genomic_lab_id ON GenomicData(lab_id)",
+            "CREATE INDEX IF NOT EXISTS idx_genomic_key ON GenomicData(key)"
+        ]
+        with engine.connect() as connection:
+            for s in idx_stmts:
+                connection.execute(text(s))
+        print("Indexes ensured (idx_metadata_lab_id, idx_metadata_key, idx_genomic_lab_id, idx_genomic_key).")
+    except Exception as e:
+        print(f"Error ensuring indexes: {e}")
 
 def ensure_file_uploaded_field():
     """

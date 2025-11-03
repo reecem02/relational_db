@@ -1,0 +1,22 @@
+key,value,type
+16S Taxonomy Comments,No comments,metadata
+16S Top Hit Similarity,97.2,metadata
+Alternate ID 1,ALT001,metadata
+Alternate ID 2,ALT002,metadata
+DNA Extraction Method,Method A,metadata
+Extracted by,Dr. Smith,metadata
+Extraction Date,2025-01-01 00:00:00,metadata
+GC3F Submission Sample ID,GC3F123,metadata
+ITS Taxonomy Comments,No comments,metadata
+ITS Top Hit Similarity,98.5,metadata
+Lab Unique ID 3,UL001-3,metadata
+Latitude,45.1234,metadata
+Location ID,LOC001,metadata
+Longitude,-122.5678,metadata
+Project Funding,Grant001,metadata
+Sample Location Plate,A1,metadata
+Top 16S Blast Hit,Example 16S Hit,metadata
+Top ITS Blast Hit,Example ITS Hit,metadata
+Uehling Lab ID,UL001,metadata
+UL001,ATCGATCGATCGATCG,fasta
+UL002,GCTAGCTAGCTAGCTA,fasta

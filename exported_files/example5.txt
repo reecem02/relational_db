@@ -1,0 +1,105 @@
+--- Row Data ---
+key | 16S Taxonomy Comments
+value | No comments
+type | metadata
+
+--- Row Data ---
+key | 16S Top Hit Similarity
+value | 97.2
+type | metadata
+
+--- Row Data ---
+key | Alternate ID 1
+value | ALT001
+type | metadata
+
+--- Row Data ---
+key | Alternate ID 2
+value | ALT002
+type | metadata
+
+--- Row Data ---
+key | DNA Extraction Method
+value | Method A
+type | metadata
+
+--- Row Data ---
+key | Extracted by
+value | Dr. Smith
+type | metadata
+
+--- Row Data ---
+key | Extraction Date
+value | 2025-01-01 00:00:00
+type | metadata
+
+--- Row Data ---
+key | GC3F Submission Sample ID
+value | GC3F123
+type | metadata
+
+--- Row Data ---
+key | ITS Taxonomy Comments
+value | No comments
+type | metadata
+
+--- Row Data ---
+key | ITS Top Hit Similarity
+value | 98.5
+type | metadata
+
+--- Row Data ---
+key | Lab Unique ID 3
+value | UL001-3
+type | metadata
+
+--- Row Data ---
+key | Latitude
+value | 45.1234
+type | metadata
+
+--- Row Data ---
+key | Location ID
+value | LOC001
+type | metadata
+
+--- Row Data ---
+key | Longitude
+value | -122.5678
+type | metadata
+
+--- Row Data ---
+key | Project Funding
+value | Grant001
+type | metadata
+
+--- Row Data ---
+key | Sample Location Plate
+value | A1
+type | metadata
+
+--- Row Data ---
+key | Top 16S Blast Hit
+value | Example 16S Hit
+type | metadata
+
+--- Row Data ---
+key | Top ITS Blast Hit
+value | Example ITS Hit
+type | metadata
+
+--- Row Data ---
+key | Uehling Lab ID
+value | UL001
+type | metadata
+
+--- Row Data ---
+key | UL001
+value | ATCGATCGATCGATCG
+type | fasta
+
+--- Row Data ---
+key | UL002
+value | GCTAGCTAGCTAGCTA
+type | fasta
+

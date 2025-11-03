@@ -1,16 +1,6 @@
 import pandas as pd
-from sqlalchemy import create_engine
-import yaml
+from modules.utils import engine
 import os
-
-# Load configuration (from config/config.yaml)
-with open("config/config.yaml", "r") as file:
-    config = yaml.safe_load(file)
-
-# Load DB Path 
-DB_PATH = os.path.expanduser(config["database"]["path"])  # or from config/config.yaml
-DB_URL = f"sqlite:///{DB_PATH}"
-engine = create_engine(DB_URL)
 
 # Function to display data for a specific lab_id
 def display_data_by_lab_id(lab_id):

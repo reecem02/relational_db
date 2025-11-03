@@ -33,15 +33,34 @@ def initialize_database():
 def import_data_ui():
     print("\n--Import Data--")
     file_type = input("Select file type: 1)Excel  2)Fasta\n")
-    file_name = input("Enter file name (including file extention): ")
-    file_path = "example_files/" + file_name
+    target = input("Import from [f]ile or [d]irectory? (f/d): ").strip().lower()
+    if target == 'd':
+        folder = input("Enter folder path (absolute or relative): ").strip()
+        file_path = os.path.expanduser(folder)
+    else:
+        file_name = input("Enter file name (including file extention) or full path: ").strip()
+        # allow either direct path or example_files relative
+        if os.path.isabs(file_name) or os.path.exists(file_name):
+            file_path = file_name
+        else:
+            file_path = os.path.join('example_files', file_name)
+
     print(f"File type: {file_type}")
-    print(f"File path: {file_path}")
+    print(f"Path: {file_path}")
 
     if file_type.lower() == "excel" or file_type == "1":
-        import_metadata(file_path)
+        # file_path may be a directory or single file
+        if os.path.isdir(file_path):
+            from modules.data_import import import_metadata_from_folder
+            import_metadata_from_folder(file_path)
+        else:
+            import_metadata(file_path)
     elif file_type.lower() == "fasta" or file_type == "2":
-        import_fasta(file_path)
+        if os.path.isdir(file_path):
+            from modules.data_import import import_fasta_from_folder
+            import_fasta_from_folder(file_path)
+        else:
+            import_fasta(file_path)
     else:  
         print("Unknown file type. Please select 1 or 2.")
 

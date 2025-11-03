@@ -1,6 +1,7 @@
 import yaml
 import os
 from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 
 def get_engine():
@@ -12,6 +13,11 @@ def get_engine():
 
     db_path = os.path.expanduser(config["database"]["path"])
     return create_engine(f"sqlite:///{db_path}")
+
+
+# Create a module-level engine and Session factory so other modules import the same
+engine = get_engine()
+Session = sessionmaker(bind=engine)
 
 def print_row_key_value(row_dict, title="Row Data"):
     """

@@ -52,13 +52,39 @@ Since this is a beta version, the program is still deep in development. Any issu
 
 **Main Functions**:
 
-- Uploading your files:
-    - Before running the program, copy files you want to upload into the database into the example_files folder
-    - Run the program
-    - Select Import Data and the data type of the file you want to import into the database
-    - Enter the file name of the file to import, and if it’s a fasta file enter the Uehling Lab ID
-    - This should import your selected file into the database. If there are any issues please document and report it.
-- Searching your files:
+- **Uploading your files** - Multiple import options:
+    - **Standard Excel Import (Option 1):** Import metadata from a single Excel file
+        - Run the program and select "Import Data" → "Standard Excel Import"
+        - Enter the file path
+        - The program will import all metadata columns into the database
+    
+    - **Standard FASTA Import (Option 2):** Import genomic data from a single FASTA file
+        - Run the program and select "Import Data" → "Standard FASTA Import"
+        - Enter the file path and the Uehling Lab ID
+        - The program will import all sequences into the database
+    
+    - **Bulk Import with FASTA File Locations (Option 3):** ⭐ **NEW FEATURE**
+        - Import metadata AND corresponding FASTA files in one operation
+        - Prepare an Excel file with all required metadata columns PLUS a "Primary Assembly Filename" column
+        - The "Primary Assembly Filename" column should contain paths to FASTA files (absolute or relative to Excel file)
+        - Run the program and select "Import Data" → "Bulk Import"
+        - Enter the Excel file path
+        - The program will:
+          - Import metadata for all rows
+          - Automatically find and import FASTA files for each genome
+          - Prompt you if duplicates are found (Skip/Replace/Stop)
+          - Report success/failures with a summary
+        - **Example Excel structure:**
+          | Uehling Lab ID | Sample Location | ... metadata columns ... | Primary Assembly Filename |
+          | UL001 | Plate A | ... | ./genomes/genome1.fasta |
+          | UL002 | Plate A | ... | /nfs6/BPP/data/genome2.fasta |
+    
+    - **Folder Import (Option 4):** Import all Excel or FASTA files from a directory
+        - Run the program and select "Import Data" → "Folder Import"
+        - Choose to import all Excel files OR all FASTA files from a folder
+        - The program will process all files of the selected type
+    
+- **Searching your files**:
     - Run the program
     - Search for the Lab ID, keyword, or specific information in the imported files
     - There will be a terminal output from your search, and you will be prompted if you want to export that information
@@ -71,3 +97,159 @@ Since this is a beta version, the program is still deep in development. Any issu
 - Deleting your files:
     - Search for the Uehling Lab ID you want to delete, the terminal will output the data stored under that ID
     - Then select what Uehling Lab ID information (metadata and/or fasta data) you want to delete
+
+---
+
+## Bulk Import Feature Guide
+
+### Overview
+The Bulk Import feature allows you to upload an Excel file with metadata and FASTA file locations, and the program will automatically import both in a single operation. This is much faster than manually importing metadata and then FASTA files separately.
+
+### Prerequisites for Bulk Import
+- Excel file (.xlsx or .xls) with all required metadata columns
+- A column named "Primary Assembly Filename" containing FASTA file paths
+- FASTA files accessible from the paths specified in the Excel file
+
+### Required Excel Columns
+Your Excel file must include all of these columns (in any order):
+```
+Uehling Lab ID (REQUIRED - this is the unique identifier)
+Sample Location Plate
+GC3F Submission Sample ID
+Alternate ID 1
+Alternate ID 2
+Lab Unique ID 3
+Extracted by
+Top ITS Blast Hit
+ITS Top Hit Similarity
+ITS Taxonomy Comments
+Top 16S Blast Hit
+16S Top Hit Similarity
+16S Taxonomy Comments
+Project Funding
+Latitude
+Longitude
+Location ID
+DNA Extraction Method
+Extraction Date
+Primary Assembly Filename (REQUIRED - contains FASTA file paths)
+```
+
+### Excel File Setup
+
+#### Example 1: Relative Paths
+If your Excel file is in `/data/` and FASTA files are in `/data/genomes/`:
+
+```
+Excel: /data/genomes_batch1.xlsx
+
+| Uehling Lab ID | Sample Location | Primary Assembly Filename    |
+| UL001          | Plate A         | ./genomes/genome1.fasta      |
+| UL002          | Plate A         | ./genomes/genome2.fasta      |
+```
+
+The program will resolve `./genomes/genome1.fasta` to `/data/genomes/genome1.fasta`
+
+#### Example 2: Absolute Paths
+```
+Excel: /data/genomes_batch1.xlsx
+
+| Uehling Lab ID | Sample Location | Primary Assembly Filename               |
+| UL001          | Plate A         | /nfs6/BPP/Uehling_Lab/data/genome1.fasta |
+| UL002          | Plate A         | /nfs4/BPP/Uehling_Lab/data/genome2.fasta |
+```
+
+The program will use paths exactly as specified.
+
+#### Example 3: Mixed Paths
+You can mix relative and absolute paths in the same Excel file.
+
+### How to Use Bulk Import
+
+1. **Create your Excel file** with all required columns (see examples above)
+2. **Prepare your FASTA files** and note their paths or organize them relative to your Excel file
+3. **Run the program:**
+   ```
+   python3 main.py
+   ```
+4. **Select option 3** from the Import Data menu: "Bulk Import (Excel + FASTA file locations)"
+5. **Enter the Excel file path** when prompted
+6. **Handle duplicate lab_ids** when prompted:
+   - **1 (Skip):** Keep existing data, skip this import
+   - **2 (Replace):** Delete old data, import new data
+   - **3 (Stop):** Cancel the entire bulk import
+7. **Review the results** - the program will display:
+   - Total rows processed
+   - Successful metadata imports
+   - Successful FASTA imports
+   - Any skipped or failed entries with reasons
+
+### Customizing the FASTA Column Name
+
+By default, the program looks for a column named "Primary Assembly Filename". If you want to use a different column name, edit `config/schema.yaml`:
+
+```yaml
+bulk_import_config:
+  fasta_file_column: "Your Column Name Here"
+  
+  # Optional: Add alternative column names
+  alternative_fasta_columns:
+    - "Assembly Filename"
+    - "Genome File"
+    - "FASTA Path"
+```
+
+The program will search for columns in this order: primary first, then alternatives.
+
+### Error Handling
+
+**Missing FASTA Files:**
+- The program will warn you and skip that file
+- Metadata for that genome will still be imported
+- You can manually add the FASTA file later using Standard FASTA Import
+
+**Invalid FASTA Format:**
+- The program will warn you and skip that file
+- Metadata for that genome will still be imported
+
+**Duplicate Lab IDs:**
+- The program will prompt you what to do (Skip/Replace/Stop)
+- Your choice is remembered for all subsequent duplicates in that import
+
+### Example Test Files
+
+The repository includes example files for testing:
+- **Excel file:** `example_files/bulk_import_example.xlsx`
+- **FASTA files:** `example_files/genomes/genome1.fasta`, `genome2.fasta`, `genome3.fasta`
+
+To test:
+```
+1. Run: python3 main.py
+2. Select: Import Data → Bulk Import
+3. Enter: bulk_import_example.xlsx
+4. The example uses relative paths (./genomes/...) which should work automatically
+```
+
+### Creating Your Own Example Files
+
+If you need to regenerate the example files, run:
+```
+python3 tools/create_bulk_import_example.py
+```
+
+---
+
+## Configuration Files
+
+### schema.yaml
+Defines:
+- Required metadata columns
+- Genomic data column names
+- **NEW:** Bulk import configuration (FASTA column name, path resolution strategy)
+
+Edit this file to customize your import settings.
+
+### config.yaml
+Defines the database location and file paths.
+
+---

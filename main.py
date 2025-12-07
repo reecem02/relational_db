@@ -1,4 +1,4 @@
-from modules.data_import import import_metadata, import_fasta
+from modules.data_import import import_metadata, import_fasta, import_bulk_with_fasta
 from modules.data_output import display_data_by_lab_id, print_row_key_value
 from modules.search import search_db
 from modules.db_info import get_database_info  # Import the new function
@@ -32,37 +32,62 @@ def initialize_database():
 
 def import_data_ui():
     print("\n--Import Data--")
-    file_type = input("Select file type: 1)Excel  2)Fasta\n")
-    target = input("Import from [f]ile or [d]irectory? (f/d): ").strip().lower()
-    if target == 'd':
-        folder = input("Enter folder path (absolute or relative): ").strip()
-        file_path = os.path.expanduser(folder)
-    else:
+    print("1) Standard Excel Import (metadata only)")
+    print("2) Standard FASTA Import (single genome)")
+    print("3) Bulk Import (Excel + FASTA file locations)")
+    print("4) Folder Import (all Excel or FASTA from directory)")
+    
+    choice = input("Select import type (1/2/3/4): ").strip()
+    
+    if choice == "1":
+        # Standard Excel Import
         file_name = input("Enter file name (including file extention) or full path: ").strip()
-        # allow either direct path or example_files relative
         if os.path.isabs(file_name) or os.path.exists(file_name):
             file_path = file_name
         else:
             file_path = os.path.join('example_files', file_name)
-
-    print(f"File type: {file_type}")
-    print(f"Path: {file_path}")
-
-    if file_type.lower() == "excel" or file_type == "1":
-        # file_path may be a directory or single file
-        if os.path.isdir(file_path):
+        
+        print(f"Importing Excel metadata from: {file_path}")
+        import_metadata(file_path)
+    
+    elif choice == "2":
+        # Standard FASTA Import
+        file_name = input("Enter file name (including file extention) or full path: ").strip()
+        if os.path.isabs(file_name) or os.path.exists(file_name):
+            file_path = file_name
+        else:
+            file_path = os.path.join('example_files', file_name)
+        
+        print(f"Importing FASTA from: {file_path}")
+        import_fasta(file_path)
+    
+    elif choice == "3":
+        # Bulk Import with FASTA locations
+        file_name = input("Enter Excel file name (including extension) or full path: ").strip()
+        if os.path.isabs(file_name) or os.path.exists(file_name):
+            file_path = file_name
+        else:
+            file_path = os.path.join('example_files', file_name)
+        
+        import_bulk_with_fasta(file_path)
+    
+    elif choice == "4":
+        # Folder Import
+        file_type = input("Import [e]xcel files or [f]asta files from folder? (e/f): ").strip().lower()
+        folder = input("Enter folder path (absolute or relative): ").strip()
+        file_path = os.path.expanduser(folder)
+        
+        if file_type == "e" or file_type == "excel":
             from modules.data_import import import_metadata_from_folder
             import_metadata_from_folder(file_path)
-        else:
-            import_metadata(file_path)
-    elif file_type.lower() == "fasta" or file_type == "2":
-        if os.path.isdir(file_path):
+        elif file_type == "f" or file_type == "fasta":
             from modules.data_import import import_fasta_from_folder
             import_fasta_from_folder(file_path)
         else:
-            import_fasta(file_path)
-    else:  
-        print("Unknown file type. Please select 1 or 2.")
+            print("Invalid choice. Please select 'e' or 'f'.")
+    
+    else:
+        print("Invalid choice. Please select 1, 2, 3, or 4.")
 
 def search_data_ui():
     print("\n-- Search Data --")

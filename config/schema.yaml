@@ -24,3 +24,27 @@ genomic_columns:
   - key
   - value
   - seq_order
+
+# Bulk import configuration
+# Used by import_bulk_with_fasta() for coordinated metadata + FASTA imports
+bulk_import_config:
+  # Primary column name in Excel that contains FASTA file paths
+  fasta_file_column: "Primary Assembly Filename"
+  
+  # Alternative column names to check if primary is missing
+  # Users can add more here without modifying code
+  # The system will search for columns in order: primary, then alternatives
+  alternative_fasta_columns:
+    # - "Assembly Filename"
+    # - "Genome File"
+    # - "FASTA Path"
+  
+  # How to resolve relative file paths
+  # Options: 
+  #   "excel_dir" - relative to Excel file's directory (default, recommended)
+  #   "absolute" - only accept absolute paths
+  path_resolution: "excel_dir"
+  
+  # What to do if a FASTA file is not found
+  # Option: "skip" - warn user and continue importing other files
+  missing_file_behavior: "skip"

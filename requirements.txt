@@ -5,3 +5,4 @@ biopython
 sqlalchemy
 openpyxl
 pymysql
+pyyaml

@@ -424,13 +424,17 @@ def import_bulk_with_fasta(excel_file_path):
         print(f"\nLoading Excel file: {excel_file_path}")
         metadata_df = pd.read_excel(excel_file_path)
         
-        # Validate required columns exist
-        required_cols = ["Uehling Lab ID", fasta_column]
-        missing = [col for col in required_cols if col not in metadata_df.columns]
-        if missing:
+        # Find columns case-insensitively
+        col_lower_map = {col.lower(): col for col in metadata_df.columns}
+        
+        lab_id_col = col_lower_map.get("uehling lab id")
+        fasta_col = col_lower_map.get("primary assembly filename")
+        
+        if not lab_id_col or not fasta_col:
             raise ValueError(
-                f"Missing required columns in Excel: {missing}\n"
-                f"Expected 'Uehling Lab ID' and '{fasta_column}'"
+                f"Missing required columns in Excel.\n"
+                f"Expected: 'Uehling Lab ID' and 'Primary Assembly Filename'\n"
+                f"Found: {list(metadata_df.columns)}"
             )
         
         # Initialize tracking
@@ -443,8 +447,8 @@ def import_bulk_with_fasta(excel_file_path):
         # Process each row
         with Session() as session:
             for idx, row in metadata_df.iterrows():
-                lab_id = row["Uehling Lab ID"]
-                fasta_path_col = row[fasta_column]
+                lab_id = row[lab_id_col]
+                fasta_path_col = row[fasta_col]
                 
                 print(f"[Row {idx+1}/{results.total_rows}] Lab ID: {lab_id}")
                 

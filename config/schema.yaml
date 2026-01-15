@@ -1,50 +1,43 @@
 metadata_columns:
-  - Uehling Lab ID
-  - Sample Location Plate
-  - GC3F Submission Sample ID
-  - Alternate ID 1
-  - Alternate ID 2
-  - Lab Unique ID 3
-  - Extracted by
-  - Top ITS Blast Hit
-  - ITS Top Hit Similarity
-  - ITS Taxonomy Comments
-  - Top 16S Blast Hit
-  - 16S Top Hit Similarity
-  - 16S Taxonomy Comments
-  - Project Funding
-  - Latitude
-  - Longitude
-  - Location ID
-  - DNA Extraction Method
-  - Extraction Date
-
+- Uehling Lab ID
+- Sample Location Plate
+- GC3F Submission Sample ID
+- Alternate ID 1
+- Alternate ID 2
+- Lab Unique ID 3
+- Extracted by
+- Top ITS Blast Hit
+- ITS Top Hit Similarity
+- ITS Taxonomy Comments
+- Top 16S Blast Hit
+- 16S Top Hit Similarity
+- 16S Taxonomy Comments
+- Project Funding
+- Latitude
+- Longitude
+- Location ID
+- DNA Extraction Method
+- Extraction Date
+- Culture ID (LTS slants)
+- DNA ID
+- Genome ID
+- Cultured by
+- NCBI genome accession
+- Extraction Method
+- Extraction Date(YYYY-MM-DD)
+- Comments
+- Comments.1
+- Taxonomy comments
+- Location
+- Country
+- Primary Assembly Filename
 genomic_columns:
-  - lab_id
-  - key
-  - value
-  - seq_order
-
-# Bulk import configuration
-# Used by import_bulk_with_fasta() for coordinated metadata + FASTA imports
+- lab_id
+- key
+- value
+- seq_order
 bulk_import_config:
-  # Primary column name in Excel that contains FASTA file paths
-  fasta_file_column: "Primary Assembly Filename"
-  
-  # Alternative column names to check if primary is missing
-  # Users can add more here without modifying code
-  # The system will search for columns in order: primary, then alternatives
-  alternative_fasta_columns:
-    # - "Assembly Filename"
-    # - "Genome File"
-    # - "FASTA Path"
-  
-  # How to resolve relative file paths
-  # Options: 
-  #   "excel_dir" - relative to Excel file's directory (default, recommended)
-  #   "absolute" - only accept absolute paths
-  path_resolution: "excel_dir"
-  
-  # What to do if a FASTA file is not found
-  # Option: "skip" - warn user and continue importing other files
-  missing_file_behavior: "skip"
+  fasta_file_column: Primary Assembly Filename
+  alternative_fasta_columns: null
+  path_resolution: excel_dir
+  missing_file_behavior: skip

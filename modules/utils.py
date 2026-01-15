@@ -33,3 +33,13 @@ def load_schema():
     with open("config/schema.yaml", "r") as file:
         schema = yaml.safe_load(file)
     return schema
+
+def save_schema(schema):
+    """
+    Save the schema definitions to schema.yaml
+    
+    Args:
+        schema: Dictionary containing the schema configuration
+    """
+    with open("config/schema.yaml", "w") as file:
+        yaml.safe_dump(schema, file, default_flow_style=False, sort_keys=False)

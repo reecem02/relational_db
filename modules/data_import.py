@@ -7,8 +7,82 @@ import os
 from modules.data_output import print_row_key_value
 from sqlalchemy import text
 from datetime import datetime
-from modules.utils import load_schema, engine, Session
+from modules.utils import load_schema, save_schema, engine, Session
 from enum import Enum
+
+def create_column_mapping(metadata_columns):
+    """
+    Create a mapping of lowercase column names to original case for case-insensitive matching.
+    
+    Args:
+        metadata_columns: List of column names from schema
+    
+    Returns:
+        Dict with lowercase keys mapping to original column names
+    """
+    return {col.lower(): col for col in metadata_columns}
+
+
+def get_schema_column_name(file_column, column_mapping):
+    """
+    Get the original case schema column name if file column matches (case-insensitive).
+    
+    Args:
+        file_column: Column name from import file
+        column_mapping: Mapping of lowercase names to original names
+    
+    Returns:
+        Original schema column name if match found, None otherwise
+    """
+    return column_mapping.get(file_column.lower())
+
+
+def check_and_add_new_metadata_columns(file_columns):
+    """
+    Check for new columns in the import file that aren't in the schema.
+    If found, prompt user individually for each new column to add to metadata_columns.
+    Also handles case-insensitive matching for existing columns.
+    
+    Args:
+        file_columns: List of column names from the import file
+    
+    Returns:
+        Tuple of (updated_schema, file_to_schema_column_mapping)
+        The mapping lets us match file columns to schema columns case-insensitively
+    """
+    schema = load_schema()
+    metadata_columns = schema["metadata_columns"]
+    
+    # Create lowercase mapping for case-insensitive comparison
+    column_mapping = create_column_mapping(metadata_columns)
+    
+    # Find columns that exist in file but not in schema (case-insensitive check)
+    new_columns = [col for col in file_columns if get_schema_column_name(col, column_mapping) is None]
+    
+    if not new_columns:
+        return schema, column_mapping
+    
+    # Prompt user about each new column individually
+    print(f"\n⚠ Found {len(new_columns)} new column(s) not in metadata_columns schema:")
+    
+    columns_to_add = []
+    for col in new_columns:
+        user_input = input(f"  Add '{col}' to metadata_columns? (yes/no): ").strip().lower()
+        if user_input in ('yes', 'y'):
+            columns_to_add.append(col)
+            print(f"    ✓ Will add '{col}'")
+        else:
+            print(f"    ⓘ Will ignore '{col}'")
+    
+    # Add approved columns to schema
+    if columns_to_add:
+        schema["metadata_columns"].extend(columns_to_add)
+        save_schema(schema)
+        print(f"\n✓ Added {len(columns_to_add)} new column(s) to schema.yaml")
+        # Refresh the mapping with updated columns
+        column_mapping = create_column_mapping(schema["metadata_columns"])
+    
+    return schema, column_mapping
 
 def validate_columns(table_name, df):
     """
@@ -43,18 +117,21 @@ def validate_columns(table_name, df):
 def import_metadata(file_path):
     """
     Import metadata from an Excel file into the Metadata table.
+    Prompts user about new columns not in the schema.
+    Uses case-insensitive column matching.
     """
     try:
         print("Loading metadata...")
-        schema = load_schema()
+        metadata = pd.read_excel(file_path)
+        
+        # Check for new columns and prompt user
+        schema, column_mapping = check_and_add_new_metadata_columns(list(metadata.columns))
         metadata_columns = schema["metadata_columns"]
 
-        metadata = pd.read_excel(file_path)
-
-        # Validate columns
-        missing_columns = [col for col in metadata_columns if col not in metadata.columns]
-        if missing_columns:
-            raise ValueError(f"Missing required columns: {missing_columns}")
+        # Validate that at least the primary key column exists (case-insensitive)
+        has_lab_id = get_schema_column_name("Uehling Lab ID", create_column_mapping(metadata.columns))
+        if not has_lab_id:
+            raise ValueError("Missing required column: 'Uehling Lab ID'")
 
         # We'll do a delete + bulk insert per lab_id to reduce DB roundtrips
         with Session() as session:
@@ -64,16 +141,21 @@ def import_metadata(file_path):
             """)
 
             for _, row in metadata.iterrows():
-                lab_id = row["Uehling Lab ID"]
+                # Get lab_id using case-insensitive matching
+                lab_id_col = get_schema_column_name("Uehling Lab ID", create_column_mapping(row.index))
+                lab_id = row[lab_id_col] if lab_id_col else row.get("Uehling Lab ID")
+                
                 # Delete existing metadata for the lab_id
                 delete_query = text("DELETE FROM Metadata WHERE lab_id = :lab_id")
                 session.execute(delete_query, {"lab_id": lab_id})
 
-                # Build parameter list for executemany
+                # Build parameter list - use case-insensitive matching for all columns
                 rows_to_insert = []
-                for column, value in row.items():
-                    if column in metadata_columns:
-                        rows_to_insert.append({"lab_id": lab_id, "key": column, "value": str(value)})
+                for file_column, value in row.items():
+                    # Find matching schema column (case-insensitive)
+                    schema_column = get_schema_column_name(file_column, column_mapping)
+                    if schema_column:
+                        rows_to_insert.append({"lab_id": lab_id, "key": schema_column, "value": str(value)})
 
                 if rows_to_insert:
                     session.execute(insert_stmt, rows_to_insert)
@@ -83,6 +165,7 @@ def import_metadata(file_path):
 
     except Exception as e:
         print(f"Error importing metadata: {e}")
+
 
 
 from modules.utils import load_schema
@@ -195,24 +278,46 @@ class DuplicateHandlingChoice(Enum):
     STOP = 3        # Cancel entire import
 
 
+class MetadataGenomicChoice:
+    """Track separate handling decisions for metadata and genomic data"""
+    def __init__(self, metadata_action=None, genomic_action=None):
+        self.metadata_action = metadata_action  # DuplicateHandlingChoice or None
+        self.genomic_action = genomic_action    # DuplicateHandlingChoice or None
+
+
 class BulkImportContext:
     """Track state during a bulk import session"""
     def __init__(self):
-        self.duplicate_handling_cache = {}  # lab_id → user's choice
+        self.duplicate_handling_cache = {}  # lab_id → MetadataGenomicChoice
     
-    def get_duplicate_handling(self, lab_id):
+    def get_duplicate_handling_for_lab_id(self, lab_id, session):
         """
-        Returns cached user choice if available.
-        Prompts user on first encounter with a duplicate.
+        Returns cached user choices if available.
+        Prompts user on first encounter with a duplicate for this lab_id.
+        Checks metadata and genomic data separately.
         
-        This way: If UL001 appears in rows 5, 15, 45
-                  Only prompt once at row 5
-                  Apply same choice to rows 15 and 45
+        Args:
+            lab_id: The lab ID to check
+            session: SQLAlchemy session for database queries
+        
+        Returns:
+            MetadataGenomicChoice with separate actions for metadata and genomic
         """
         if lab_id in self.duplicate_handling_cache:
             return self.duplicate_handling_cache[lab_id]
         
-        choice = handle_duplicate_lab_id(lab_id)
+        # Check what already exists
+        has_metadata = session.execute(
+            text("SELECT COUNT(*) FROM Metadata WHERE lab_id = :lab_id"),
+            {"lab_id": lab_id}
+        ).scalar() > 0
+        
+        has_genomic = session.execute(
+            text("SELECT COUNT(*) FROM GenomicData WHERE lab_id = :lab_id"),
+            {"lab_id": lab_id}
+        ).scalar() > 0
+        
+        choice = handle_duplicate_lab_id_detailed(lab_id, has_metadata, has_genomic)
         self.duplicate_handling_cache[lab_id] = choice
         return choice
 
@@ -316,17 +421,84 @@ def handle_duplicate_lab_id(lab_id):
     return choice_map.get(choice, DuplicateHandlingChoice.SKIP)
 
 
-def import_metadata_row(session, row, lab_id):
+def handle_duplicate_lab_id_detailed(lab_id, has_metadata, has_genomic):
+    """
+    Prompt user for separate handling decisions on metadata and genomic data.
+    
+    Args:
+        lab_id: The duplicate Uehling Lab ID
+        has_metadata: Boolean, whether metadata exists for this lab_id
+        has_genomic: Boolean, whether genomic data exists for this lab_id
+    
+    Returns:
+        MetadataGenomicChoice with separate actions for each
+    """
+    print(f"\n⚠ Lab ID '{lab_id}' already has data in database:")
+    if has_metadata:
+        print("   • Metadata exists")
+    if has_genomic:
+        print("   • Genomic data exists")
+    
+    metadata_choice = None
+    genomic_choice = None
+    
+    # Prompt for metadata if it exists
+    if has_metadata:
+        print("\nMetadata handling:")
+        print("   1) Skip (keep existing metadata)")
+        print("   2) Replace (delete old, import new metadata)")
+        print("   3) Stop bulk import")
+        choice = input("   Enter choice (1/2/3): ").strip()
+        choice_map = {
+            "1": DuplicateHandlingChoice.SKIP,
+            "2": DuplicateHandlingChoice.REPLACE,
+            "3": DuplicateHandlingChoice.STOP
+        }
+        metadata_choice = choice_map.get(choice, DuplicateHandlingChoice.SKIP)
+        
+        # If user chose STOP, return immediately
+        if metadata_choice == DuplicateHandlingChoice.STOP:
+            return MetadataGenomicChoice(metadata_choice, genomic_choice)
+    
+    # Prompt for genomic data if it exists
+    if has_genomic:
+        print("\nGenomic data handling:")
+        print("   1) Skip (keep existing genomic data)")
+        print("   2) Replace (delete old, import new genomic data)")
+        print("   3) Stop bulk import")
+        choice = input("   Enter choice (1/2/3): ").strip()
+        choice_map = {
+            "1": DuplicateHandlingChoice.SKIP,
+            "2": DuplicateHandlingChoice.REPLACE,
+            "3": DuplicateHandlingChoice.STOP
+        }
+        genomic_choice = choice_map.get(choice, DuplicateHandlingChoice.SKIP)
+        
+        # If user chose STOP, return immediately
+        if genomic_choice == DuplicateHandlingChoice.STOP:
+            return MetadataGenomicChoice(metadata_choice, genomic_choice)
+    
+    return MetadataGenomicChoice(metadata_choice, genomic_choice)
+
+
+def import_metadata_row(session, row, lab_id, metadata_columns=None, column_mapping=None):
     """
     Import single metadata row.
+    Uses case-insensitive column matching.
     
     Args:
         session: SQLAlchemy session
         row: pandas Series from DataFrame row
         lab_id: The Uehling Lab ID for this row
+        metadata_columns: List of metadata columns (loaded from schema if None)
+        column_mapping: Lowercase to original column name mapping (generated if None)
     """
-    schema = load_schema()
-    metadata_columns = schema["metadata_columns"]
+    if metadata_columns is None:
+        schema = load_schema()
+        metadata_columns = schema["metadata_columns"]
+    
+    if column_mapping is None:
+        column_mapping = create_column_mapping(metadata_columns)
     
     insert_stmt = text("""
         INSERT INTO Metadata (lab_id, key, value)
@@ -334,11 +506,13 @@ def import_metadata_row(session, row, lab_id):
     """)
     
     rows_to_insert = []
-    for column, value in row.items():
-        if column in metadata_columns:
+    for file_column, value in row.items():
+        # Find matching schema column (case-insensitive)
+        schema_column = get_schema_column_name(file_column, column_mapping)
+        if schema_column:
             rows_to_insert.append({
                 "lab_id": lab_id,
-                "key": column,
+                "key": schema_column,
                 "value": str(value)
             })
     
@@ -390,12 +564,13 @@ def import_bulk_with_fasta(excel_file_path):
     Process:
     1. Validate Excel file and FASTA column exists
     2. Load configuration for path resolution
-    3. For each row:
+    3. Check for new metadata columns and prompt user
+    4. For each row:
        a. Check for duplicate lab_id
        b. Import metadata
        c. Resolve FASTA file path
        d. Import FASTA if file exists
-    4. Report results with counts and any issues
+    5. Report results with counts and any issues
     
     Error Handling:
     - Missing FASTA files: Skip (warn user) - continues with next file
@@ -423,6 +598,10 @@ def import_bulk_with_fasta(excel_file_path):
         # Load Excel file
         print(f"\nLoading Excel file: {excel_file_path}")
         metadata_df = pd.read_excel(excel_file_path)
+        
+        # Check for new columns and prompt user (before processing)
+        schema, column_mapping = check_and_add_new_metadata_columns(list(metadata_df.columns))
+        metadata_columns = schema["metadata_columns"]
         
         # Find columns case-insensitively
         col_lower_map = {col.lower(): col for col in metadata_df.columns}
@@ -452,48 +631,63 @@ def import_bulk_with_fasta(excel_file_path):
                 
                 print(f"[Row {idx+1}/{results.total_rows}] Lab ID: {lab_id}")
                 
-                # Check for duplicate
-                existing = session.execute(
+                # Check for existing metadata and genomic data separately
+                has_metadata = session.execute(
                     text("SELECT COUNT(*) FROM Metadata WHERE lab_id = :lab_id"),
                     {"lab_id": lab_id}
-                ).scalar()
+                ).scalar() > 0
                 
-                if existing > 0:
-                    choice = context.get_duplicate_handling(lab_id)
+                has_genomic = session.execute(
+                    text("SELECT COUNT(*) FROM GenomicData WHERE lab_id = :lab_id"),
+                    {"lab_id": lab_id}
+                ).scalar() > 0
+                
+                # If any data exists, get user's handling preference
+                if has_metadata or has_genomic:
+                    choices = context.get_duplicate_handling_for_lab_id(lab_id, session)
                     
-                    if choice == DuplicateHandlingChoice.SKIP:
-                        print(f"  → Skipping (keeping existing data)")
-                        results.metadata_skipped.append((lab_id, "Duplicate - user chose SKIP"))
-                        continue
-                    
-                    elif choice == DuplicateHandlingChoice.STOP:
+                    # Check for STOP command
+                    if choices.metadata_action == DuplicateHandlingChoice.STOP or choices.genomic_action == DuplicateHandlingChoice.STOP:
                         print(f"\n⚠ Bulk import stopped by user")
                         session.commit()
                         results.print_summary()
                         return
                     
-                    elif choice == DuplicateHandlingChoice.REPLACE:
-                        print(f"  → Replacing existing data")
-                        session.execute(
-                            text("DELETE FROM Metadata WHERE lab_id = :lab_id"),
-                            {"lab_id": lab_id}
-                        )
-                        session.execute(
-                            text("DELETE FROM GenomicData WHERE lab_id = :lab_id"),
-                            {"lab_id": lab_id}
-                        )
+                    # Handle metadata based on user's choice
+                    if has_metadata:
+                        if choices.metadata_action == DuplicateHandlingChoice.SKIP:
+                            print(f"  ⓘ Metadata: Skipping (keeping existing data)")
+                            results.metadata_skipped.append((lab_id, "Duplicate metadata - user chose SKIP"))
+                        elif choices.metadata_action == DuplicateHandlingChoice.REPLACE:
+                            print(f"  → Metadata: Replacing existing data")
+                            session.execute(
+                                text("DELETE FROM Metadata WHERE lab_id = :lab_id"),
+                                {"lab_id": lab_id}
+                            )
+                    
+                    # Handle genomic data based on user's choice
+                    if has_genomic:
+                        if choices.genomic_action == DuplicateHandlingChoice.SKIP:
+                            print(f"  ⓘ Genomic: Skipping (keeping existing data)")
+                            results.fasta_skipped.append((lab_id, "Duplicate genomic data - user chose SKIP"))
+                        elif choices.genomic_action == DuplicateHandlingChoice.REPLACE:
+                            print(f"  → Genomic: Replacing existing data")
+                            session.execute(
+                                text("DELETE FROM GenomicData WHERE lab_id = :lab_id"),
+                                {"lab_id": lab_id}
+                            )
                 
-                # Import metadata
-                try:
-                    import_metadata_row(session, row, lab_id)
-                    results.metadata_imported += 1
-                    print(f"  ✓ Metadata imported")
-                except Exception as e:
-                    print(f"  ✗ Metadata import failed: {e}")
-                    results.metadata_failed.append((lab_id, str(e)))
-                    continue
+                # Import metadata if not skipped
+                if not has_metadata or (has_metadata and choices.metadata_action != DuplicateHandlingChoice.SKIP):
+                    try:
+                        import_metadata_row(session, row, lab_id, metadata_columns, column_mapping)
+                        results.metadata_imported += 1
+                        print(f"  ✓ Metadata imported")
+                    except Exception as e:
+                        print(f"  ✗ Metadata import failed: {e}")
+                        results.metadata_failed.append((lab_id, str(e)))
                 
-                # Import FASTA if path is provided
+                # Import FASTA if path is provided (process independently of metadata)
                 if pd.isna(fasta_path_col) or str(fasta_path_col).strip() == "":
                     print(f"  ⓘ No FASTA file specified")
                     results.fasta_skipped.append((lab_id, "No file path provided"))

@@ -5,6 +5,7 @@ from modules.db_info import get_database_info  # Import the new function
 from modules.delete import delete_lab_id, delete_metadata, delete_fasta
 from modules.delete import display_lab_id_data
 from modules.export_utils import export_table, export_pretty
+from modules.workflow_barrnap import run_barrnap_workflow
 import os
 import sqlite3
 
@@ -189,26 +190,44 @@ def delete_data_ui():
         print("Invalid choice. Returning to main menu.")
 
 
+def analysis_workflows_ui():
+    print("\n========== ANALYSIS WORKFLOWS ==========")
+    print("Advanced genomic analysis tools and pipelines")
+    print("1) Barrnap rRNA Annotation Pipeline")
+    print("2) Back to Main Menu")
+    
+    choice = input("\nSelect workflow (1/2): ").strip()
+    
+    if choice == "1":
+        run_barrnap_workflow()
+    elif choice == "2":
+        return
+    else:
+        print("Invalid choice. Returning to main menu.")
+
+
 def help_ui():
     print("\n-- Help --")
     print("1) Import Data: Upload Excel or Fasta files from the example_files folder.")
     print("2) Search Data: Find entries by lab ID, extraction method, or date.")
     print("3) Delete Data: Search a lab ID you want to delete, then select what information you want to deelte.")
+    print("4) Analysis Workflows: Run advanced genomic analysis pipelines (Barrnap, etc.).")
     print("5) Database Information: View amount of entries in metadata and genomic data tables, last uploaded date, and total database size.")
     print("6) Exit: Quit the program.")
     return
 
 def main():
     while True:
-        print("\nWelcome to the Fungal Research Database")
+        print("\n========== FUNGAL RESEARCH DATABASE ==========")
         print("1) Import Data")
         print("2) Search Data")
         print("3) Delete Data")
-        print("4) Help")
+        print("4) Analysis Workflows")
         print("5) Database Information")
-        print("6) Exit")
+        print("6) Help")
+        print("7) Exit")
 
-        choice = input("Enter your choice: ")
+        choice = input("\nEnter your choice: ")
         if choice == "1":
             import_data_ui()
         elif choice == "2":
@@ -216,10 +235,12 @@ def main():
         elif choice == "3":
             delete_data_ui()
         elif choice == "4":
-            help_ui()
+            analysis_workflows_ui()
         elif choice == "5":
             get_database_info()
         elif choice == "6":
+            help_ui()
+        elif choice == "7":
             print("Goodbye!")
             break
         else:

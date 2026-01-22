@@ -41,3 +41,14 @@ bulk_import_config:
   alternative_fasta_columns: null
   path_resolution: excel_dir
   missing_file_behavior: skip
+
+barrnap_config:
+  default_kingdom: fungi
+  default_coverage: 50
+  input_directory: barrnap_input/genomes
+  output_directory: barrnap_output
+  annotations_directory: barrnap_output/annotations
+  rrna_sequences_directory: barrnap_output/rrna_sequences
+  gff_annotations_directory: barrnap_output/gff_annotations
+  enable_multi_criteria_filtering: true
+  description: Configuration for Barrnap rRNA annotation pipeline integration

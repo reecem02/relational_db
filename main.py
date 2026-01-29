@@ -4,8 +4,7 @@ from modules.search import search_db
 from modules.db_info import get_database_info  # Import the new function
 from modules.delete import delete_lab_id, delete_metadata, delete_fasta
 from modules.delete import display_lab_id_data
-from modules.export_utils import export_table, export_pretty
-from modules.workflow_barrnap import run_barrnap_workflow
+from modules.export_utils import export_table, export_pretty, export_fasta
 import os
 import sqlite3
 
@@ -117,13 +116,15 @@ def export_prompt(results):
         return
 
     # Choose format
-    fmt = input("Export as [1] CSV, [2] Excel, or [3] TXT? (1/2/3): ").strip()
+    fmt = input("Export as [1] CSV, [2] Excel, [3] TXT, or [4] FASTA (for Barrnap)? (1/2/3/4): ").strip()
     if fmt == '1':
         ext, file_type = 'csv', 'csv'
     elif fmt == '2':
         ext, file_type = 'xlsx', 'excel'
     elif fmt == '3':
         ext, file_type = 'txt', 'txt'
+    elif fmt == '4':
+        ext, file_type = 'fasta', 'fasta'
     else:
         print("Invalid format, exporting as CSV.")
         ext, file_type = 'csv', 'csv'
@@ -148,6 +149,8 @@ def export_prompt(results):
     # Export
     if file_type in ('csv', 'excel'):
         export_table(results, file_path, file_type, append=append)
+    elif file_type == 'fasta':
+        export_fasta(results, file_path, append=append)
     else:
         export_pretty(results, file_path, append=append)
 
@@ -190,44 +193,26 @@ def delete_data_ui():
         print("Invalid choice. Returning to main menu.")
 
 
-def analysis_workflows_ui():
-    print("\n========== ANALYSIS WORKFLOWS ==========")
-    print("Advanced genomic analysis tools and pipelines")
-    print("1) Barrnap rRNA Annotation Pipeline")
-    print("2) Back to Main Menu")
-    
-    choice = input("\nSelect workflow (1/2): ").strip()
-    
-    if choice == "1":
-        run_barrnap_workflow()
-    elif choice == "2":
-        return
-    else:
-        print("Invalid choice. Returning to main menu.")
-
-
 def help_ui():
     print("\n-- Help --")
     print("1) Import Data: Upload Excel or Fasta files from the example_files folder.")
     print("2) Search Data: Find entries by lab ID, extraction method, or date.")
     print("3) Delete Data: Search a lab ID you want to delete, then select what information you want to deelte.")
-    print("4) Analysis Workflows: Run advanced genomic analysis pipelines (Barrnap, etc.).")
-    print("5) Database Information: View amount of entries in metadata and genomic data tables, last uploaded date, and total database size.")
-    print("6) Exit: Quit the program.")
+    print("4) Database Information: View amount of entries in metadata and genomic data tables, last uploaded date, and total database size.")
+    print("5) Exit: Quit the program.")
     return
 
 def main():
     while True:
-        print("\n========== FUNGAL RESEARCH DATABASE ==========")
+        print("\nWelcome to the Fungal Research Database")
         print("1) Import Data")
         print("2) Search Data")
         print("3) Delete Data")
-        print("4) Analysis Workflows")
+        print("4) Help")
         print("5) Database Information")
-        print("6) Help")
-        print("7) Exit")
+        print("6) Exit")
 
-        choice = input("\nEnter your choice: ")
+        choice = input("Enter your choice: ")
         if choice == "1":
             import_data_ui()
         elif choice == "2":
@@ -235,12 +220,10 @@ def main():
         elif choice == "3":
             delete_data_ui()
         elif choice == "4":
-            analysis_workflows_ui()
+            help_ui()
         elif choice == "5":
             get_database_info()
         elif choice == "6":
-            help_ui()
-        elif choice == "7":
             print("Goodbye!")
             break
         else:

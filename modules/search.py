@@ -38,7 +38,7 @@ def search_db(keyword):
         if is_lab_id:
             # Fetch all metadata for this lab_id
             query_metadata = """
-                SELECT key, value
+                SELECT lab_id, key, value
                 FROM Metadata
                 WHERE lab_id = :lab_id
             """
@@ -47,7 +47,7 @@ def search_db(keyword):
 
             # Fetch first 10 FASTA sequences for this lab_id
             query_genomic = """
-                SELECT key, value
+                SELECT lab_id, key, value
                 FROM GenomicData
                 WHERE lab_id = :lab_id
                 LIMIT 10
@@ -89,7 +89,8 @@ def search_db(keyword):
                 FROM Metadata
                 WHERE lab_id LIKE :kw OR key LIKE :kw OR value LIKE :kw
             """
-            results.append(pd.read_sql(query_metadata, con=engine, params={"kw": f"%{keyword}%"}))
+            metadata_results = pd.read_sql(query_metadata, con=engine, params={"kw": f"%{keyword}%"})
+            results.append(metadata_results)
 
             # Search GenomicData
             cols = ', '.join(schema["genomic_columns"])
@@ -132,7 +133,29 @@ def search_db(keyword):
                 print(display_df.head(10).to_string(index=False))
             else:
                 print(f"No results found for: {keyword}")
-            display_df['type'] = 'metadata'  # or another appropriate value
+            
+            # If metadata results contain multiple lab_ids, fetch their FASTA sequences for bulk export
+            display_df['type'] = 'metadata'
+            
+            if not metadata_results.empty and 'lab_id' in metadata_results.columns:
+                matched_lab_ids = metadata_results['lab_id'].unique()
+                if len(matched_lab_ids) > 0:
+                    print(f"\nMatched {len(matched_lab_ids)} unique lab_ids. Fetching FASTA sequences for bulk export...")
+                    # Fetch ALL genomic sequences for matched lab_ids (for phylogenetic export)
+                    # Use a dynamic query with multiple OR conditions to handle SQLAlchemy parameter binding
+                    or_conditions = " OR ".join([f"lab_id = :lab_id_{i}" for i in range(len(matched_lab_ids))])
+                    query_all_fasta = f"""
+                        SELECT lab_id, key, value
+                        FROM GenomicData
+                        WHERE {or_conditions}
+                    """
+                    params = {f"lab_id_{i}": lab_id for i, lab_id in enumerate(matched_lab_ids)}
+                    fasta_data = pd.read_sql(query_all_fasta, con=engine, params=params)
+                    if not fasta_data.empty:
+                        fasta_data['type'] = 'fasta'
+                        display_df = pd.concat([display_df, fasta_data], ignore_index=True, sort=False)
+                        print(f"Fetched {len(fasta_data)} FASTA sequences from {len(matched_lab_ids)} lab_ids")
+            
             return display_df
 
     except Exception as e:

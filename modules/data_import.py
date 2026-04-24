@@ -7,8 +7,81 @@ import os
 from modules.data_output import print_row_key_value
 from sqlalchemy import text
 from datetime import datetime
-from modules.utils import load_schema, engine, Session
-from enum import Enum
+from modules.utils import load_schema, save_schema, engine, Session
+
+def create_column_mapping(metadata_columns):
+    """
+    Create a mapping of lowercase column names to original case for case-insensitive matching.
+    
+    Args:
+        metadata_columns: List of column names from schema
+    
+    Returns:
+        Dict with lowercase keys mapping to original column names
+    """
+    return {col.lower(): col for col in metadata_columns}
+
+
+def get_schema_column_name(file_column, column_mapping):
+    """
+    Get the original case schema column name if file column matches (case-insensitive).
+    
+    Args:
+        file_column: Column name from import file
+        column_mapping: Mapping of lowercase names to original names
+    
+    Returns:
+        Original schema column name if match found, None otherwise
+    """
+    return column_mapping.get(file_column.lower())
+
+
+def check_and_add_new_metadata_columns(file_columns):
+    """
+    Check for new columns in the import file that aren't in the schema.
+    If found, prompt user individually for each new column to add to metadata_columns.
+    Also handles case-insensitive matching for existing columns.
+    
+    Args:
+        file_columns: List of column names from the import file
+    
+    Returns:
+        Tuple of (updated_schema, file_to_schema_column_mapping)
+        The mapping lets us match file columns to schema columns case-insensitively
+    """
+    schema = load_schema()
+    metadata_columns = schema["metadata_columns"]
+    
+    # Create lowercase mapping for case-insensitive comparison
+    column_mapping = create_column_mapping(metadata_columns)
+    
+    # Find columns that exist in file but not in schema (case-insensitive check)
+    new_columns = [col for col in file_columns if get_schema_column_name(col, column_mapping) is None]
+    
+    if not new_columns:
+        return schema, column_mapping
+    
+    # Prompt user about each new column individually
+    print(f"\n⚠ Found {len(new_columns)} new column(s) not in metadata_columns schema:")
+    
+    columns_to_add = []
+    for col in new_columns:
+        user_input = input(f"  Add '{col}' to metadata_columns? (yes/no): ").strip().lower()
+        if user_input in ('yes', 'y'):
+            columns_to_add.append(col)
+            print(f"    ✓ Will add '{col}'")
+        else:
+            print(f"    ⓘ Will ignore '{col}'")
+    
+    # Add approved columns to schema
+    if columns_to_add:
+        schema["metadata_columns"].extend(columns_to_add)
+        save_schema(schema)
+        print(f"\n✓ Added {len(columns_to_add)} new column(s) to schema.yaml")
+        # Refresh the mapping with updated columns
+        column_mapping = create_column_mapping(schema["metadata_columns"])
+    
+    return schema, column_mapping
 
 def validate_columns(table_name, df):
     """
@@ -43,18 +116,21 @@ def validate_columns(table_name, df):
 def import_metadata(file_path):
     """
     Import metadata from an Excel file into the Metadata table.
+    Prompts user about new columns not in the schema.
+    Uses case-insensitive column matching.
     """
     try:
         print("Loading metadata...")
-        schema = load_schema()
+        metadata = pd.read_excel(file_path)
+        
+        # Check for new columns and prompt user
+        schema, column_mapping = check_and_add_new_metadata_columns(list(metadata.columns))
         metadata_columns = schema["metadata_columns"]
 
-        metadata = pd.read_excel(file_path)
-
-        # Validate columns
-        missing_columns = [col for col in metadata_columns if col not in metadata.columns]
-        if missing_columns:
-            raise ValueError(f"Missing required columns: {missing_columns}")
+        # Validate that at least the primary key column exists (case-insensitive)
+        has_lab_id = get_schema_column_name("Uehling Lab ID", create_column_mapping(metadata.columns))
+        if not has_lab_id:
+            raise ValueError("Missing required column: 'Uehling Lab ID'")
 
         # We'll do a delete + bulk insert per lab_id to reduce DB roundtrips
         with Session() as session:
@@ -64,16 +140,21 @@ def import_metadata(file_path):
             """)
 
             for _, row in metadata.iterrows():
-                lab_id = row["Uehling Lab ID"]
+                # Get lab_id using case-insensitive matching
+                lab_id_col = get_schema_column_name("Uehling Lab ID", create_column_mapping(row.index))
+                lab_id = row[lab_id_col] if lab_id_col else row.get("Uehling Lab ID")
+                
                 # Delete existing metadata for the lab_id
                 delete_query = text("DELETE FROM Metadata WHERE lab_id = :lab_id")
                 session.execute(delete_query, {"lab_id": lab_id})
 
-                # Build parameter list for executemany
+                # Build parameter list - use case-insensitive matching for all columns
                 rows_to_insert = []
-                for column, value in row.items():
-                    if column in metadata_columns:
-                        rows_to_insert.append({"lab_id": lab_id, "key": column, "value": str(value)})
+                for file_column, value in row.items():
+                    # Find matching schema column (case-insensitive)
+                    schema_column = get_schema_column_name(file_column, column_mapping)
+                    if schema_column:
+                        rows_to_insert.append({"lab_id": lab_id, "key": schema_column, "value": str(value)})
 
                 if rows_to_insert:
                     session.execute(insert_stmt, rows_to_insert)
@@ -83,6 +164,7 @@ def import_metadata(file_path):
 
     except Exception as e:
         print(f"Error importing metadata: {e}")
+
 
 
 from modules.utils import load_schema
@@ -188,33 +270,60 @@ def import_metadata_from_folder(folder_path, recursive=False):
 # BULK IMPORT WITH FASTA FILE LOCATIONS
 # ============================================================================
 
-class DuplicateHandlingChoice(Enum):
+class DuplicateAction:
     """User's choice when a duplicate lab_id is encountered"""
-    SKIP = 1        # Keep existing data
-    REPLACE = 2     # Delete old, insert new
-    STOP = 3        # Cancel entire import
+    SKIP = "skip"           # Keep existing data
+    REPLACE = "replace"     # Delete old, import new
+    STOP = "stop"          # Cancel entire import
 
 
-class BulkImportContext:
-    """Track state during a bulk import session"""
+class UserChoiceCache:
+    """Cache user choices so we only ask once per lab_id"""
     def __init__(self):
-        self.duplicate_handling_cache = {}  # lab_id → user's choice
+        self.metadata_choices = {}  # lab_id → DuplicateAction
+        self.genomic_choices = {}   # lab_id → DuplicateAction
+
+
+def prompt_duplicate_handling(lab_id, has_metadata, has_genomic):
+    """
+    Prompt user for separate handling of metadata and genomic data.
+    Returns dict with 'metadata_action' and 'genomic_action' keys.
+    """
+    print(f"\n⚠ Lab ID '{lab_id}' already exists in database:")
+    if has_metadata:
+        print("   • Metadata exists")
+    if has_genomic:
+        print("   • Genomic data exists")
     
-    def get_duplicate_handling(self, lab_id):
-        """
-        Returns cached user choice if available.
-        Prompts user on first encounter with a duplicate.
+    result = {}
+    
+    # Prompt for metadata handling
+    if has_metadata:
+        print("\nMetadata handling:")
+        print("   1) Skip (keep existing)")
+        print("   2) Replace (import new)")
+        print("   3) Stop import")
+        choice = input("   Enter choice (1/2/3): ").strip()
+        choice_map = {"1": DuplicateAction.SKIP, "2": DuplicateAction.REPLACE, "3": DuplicateAction.STOP}
+        result['metadata_action'] = choice_map.get(choice, DuplicateAction.SKIP)
         
-        This way: If UL001 appears in rows 5, 15, 45
-                  Only prompt once at row 5
-                  Apply same choice to rows 15 and 45
-        """
-        if lab_id in self.duplicate_handling_cache:
-            return self.duplicate_handling_cache[lab_id]
+        if result['metadata_action'] == DuplicateAction.STOP:
+            return result
+    
+    # Prompt for genomic handling
+    if has_genomic:
+        print("\nGenomic data handling:")
+        print("   1) Skip (keep existing)")
+        print("   2) Replace (import new)")
+        print("   3) Stop import")
+        choice = input("   Enter choice (1/2/3): ").strip()
+        choice_map = {"1": DuplicateAction.SKIP, "2": DuplicateAction.REPLACE, "3": DuplicateAction.STOP}
+        result['genomic_action'] = choice_map.get(choice, DuplicateAction.SKIP)
         
-        choice = handle_duplicate_lab_id(lab_id)
-        self.duplicate_handling_cache[lab_id] = choice
-        return choice
+        if result['genomic_action'] == DuplicateAction.STOP:
+            return result
+    
+    return result
 
 
 class BulkImportResult:
@@ -290,65 +399,51 @@ def resolve_fasta_path(fasta_path_from_excel, excel_dir):
     return resolved, os.path.exists(resolved)
 
 
-def handle_duplicate_lab_id(lab_id):
-    """
-    Prompt user for duplicate handling decision.
-    
-    Args:
-        lab_id: The duplicate Uehling Lab ID
-    
-    Returns:
-        DuplicateHandlingChoice enum value
-    """
-    print(f"\n⚠ Duplicate Found: Lab ID '{lab_id}' already exists in database")
-    print("   What would you like to do?")
-    print("   1) Skip (keep existing data)")
-    print("   2) Replace (delete old, import new)")
-    print("   3) Stop bulk import")
-    
-    choice = input("   Enter choice (1/2/3): ").strip()
-    
-    choice_map = {
-        "1": DuplicateHandlingChoice.SKIP,
-        "2": DuplicateHandlingChoice.REPLACE,
-        "3": DuplicateHandlingChoice.STOP
-    }
-    return choice_map.get(choice, DuplicateHandlingChoice.SKIP)
 
-
-def import_metadata_row(session, row, lab_id):
+def import_metadata_row(session, row, lab_id, metadata_columns=None, column_mapping=None):
     """
-    Import single metadata row.
+    Import single metadata row using UPSERT pattern.
+    Simple approach: skip empty values, use INSERT OR REPLACE for all others.
     
     Args:
         session: SQLAlchemy session
         row: pandas Series from DataFrame row
         lab_id: The Uehling Lab ID for this row
+        metadata_columns: List of metadata columns (loaded from schema if None)
+        column_mapping: Lowercase to original column name mapping (generated if None)
     """
-    schema = load_schema()
-    metadata_columns = schema["metadata_columns"]
+    if metadata_columns is None:
+        schema = load_schema()
+        metadata_columns = schema["metadata_columns"]
     
-    insert_stmt = text("""
-        INSERT INTO Metadata (lab_id, key, value)
+    if column_mapping is None:
+        column_mapping = create_column_mapping(metadata_columns)
+    
+    upsert_stmt = text("""
+        INSERT OR REPLACE INTO Metadata (lab_id, key, value)
         VALUES (:lab_id, :key, :value)
     """)
     
-    rows_to_insert = []
-    for column, value in row.items():
-        if column in metadata_columns:
-            rows_to_insert.append({
+    for file_column, value in row.items():
+        # Find matching schema column (case-insensitive)
+        schema_column = get_schema_column_name(file_column, column_mapping)
+        if schema_column:
+            # Skip empty/null values - don't insert "nan" strings or empty values
+            if pd.isna(value) or str(value).strip() == "" or str(value).lower() == "nan":
+                continue
+            
+            # Use UPSERT to handle both new and existing records uniformly
+            session.execute(upsert_stmt, {
                 "lab_id": lab_id,
-                "key": column,
+                "key": schema_column,
                 "value": str(value)
             })
-    
-    if rows_to_insert:
-        session.execute(insert_stmt, rows_to_insert)
 
 
 def import_fasta_batch(session, fasta_file_path, lab_id):
     """
-    Import FASTA file for a single lab_id with batching for performance.
+    Import FASTA file using UPSERT pattern.
+    Automatically replaces existing genomic data for this lab_id.
     
     Args:
         session: SQLAlchemy session
@@ -356,6 +451,14 @@ def import_fasta_batch(session, fasta_file_path, lab_id):
         lab_id: The Uehling Lab ID for this file
     """
     BATCH_SIZE = 500
+    
+    # First, delete any existing genomic data for this lab_id
+    session.execute(
+        text("DELETE FROM GenomicData WHERE lab_id = :lab_id"),
+        {"lab_id": lab_id}
+    )
+    session.flush()
+    
     insert_stmt = text("""
         INSERT INTO GenomicData (lab_id, key, value, seq_order)
         VALUES (:lab_id, :key, :value, :seq_order)
@@ -390,12 +493,13 @@ def import_bulk_with_fasta(excel_file_path):
     Process:
     1. Validate Excel file and FASTA column exists
     2. Load configuration for path resolution
-    3. For each row:
+    3. Check for new metadata columns and prompt user
+    4. For each row:
        a. Check for duplicate lab_id
        b. Import metadata
        c. Resolve FASTA file path
        d. Import FASTA if file exists
-    4. Report results with counts and any issues
+    5. Report results with counts and any issues
     
     Error Handling:
     - Missing FASTA files: Skip (warn user) - continues with next file
@@ -424,6 +528,10 @@ def import_bulk_with_fasta(excel_file_path):
         print(f"\nLoading Excel file: {excel_file_path}")
         metadata_df = pd.read_excel(excel_file_path)
         
+        # Check for new columns and prompt user (before processing)
+        schema, column_mapping = check_and_add_new_metadata_columns(list(metadata_df.columns))
+        metadata_columns = schema["metadata_columns"]
+        
         # Find columns case-insensitively
         col_lower_map = {col.lower(): col for col in metadata_df.columns}
         
@@ -440,91 +548,111 @@ def import_bulk_with_fasta(excel_file_path):
         # Initialize tracking
         results = BulkImportResult()
         results.total_rows = len(metadata_df)
-        context = BulkImportContext()
+        choice_cache = UserChoiceCache()
         
         print(f"Processing {results.total_rows} rows...\n")
         
         # Process each row
         with Session() as session:
-            for idx, row in metadata_df.iterrows():
-                lab_id = row[lab_id_col]
-                fasta_path_col = row[fasta_col]
+            try:
+                session.begin()  # Start transaction
                 
-                print(f"[Row {idx+1}/{results.total_rows}] Lab ID: {lab_id}")
-                
-                # Check for duplicate
-                existing = session.execute(
-                    text("SELECT COUNT(*) FROM Metadata WHERE lab_id = :lab_id"),
-                    {"lab_id": lab_id}
-                ).scalar()
-                
-                if existing > 0:
-                    choice = context.get_duplicate_handling(lab_id)
+                for idx, row in metadata_df.iterrows():
+                    lab_id = row[lab_id_col]
+                    fasta_path_col = row[fasta_col]
                     
-                    if choice == DuplicateHandlingChoice.SKIP:
-                        print(f"  → Skipping (keeping existing data)")
-                        results.metadata_skipped.append((lab_id, "Duplicate - user chose SKIP"))
-                        continue
+                    print(f"[Row {idx+1}/{results.total_rows}] Lab ID: {lab_id}")
                     
-                    elif choice == DuplicateHandlingChoice.STOP:
-                        print(f"\n⚠ Bulk import stopped by user")
-                        session.commit()
-                        results.print_summary()
-                        return
+                    # Check for existing data
+                    has_metadata = session.execute(
+                        text("SELECT COUNT(*) FROM Metadata WHERE lab_id = :lab_id"),
+                        {"lab_id": lab_id}
+                    ).scalar() > 0
                     
-                    elif choice == DuplicateHandlingChoice.REPLACE:
-                        print(f"  → Replacing existing data")
-                        session.execute(
-                            text("DELETE FROM Metadata WHERE lab_id = :lab_id"),
-                            {"lab_id": lab_id}
-                        )
-                        session.execute(
-                            text("DELETE FROM GenomicData WHERE lab_id = :lab_id"),
-                            {"lab_id": lab_id}
-                        )
+                    has_genomic = session.execute(
+                        text("SELECT COUNT(*) FROM GenomicData WHERE lab_id = :lab_id"),
+                        {"lab_id": lab_id}
+                    ).scalar() > 0
+                    
+                    # If data exists, prompt user (cached per lab_id)
+                    metadata_action = None
+                    genomic_action = None
+                    
+                    if has_metadata or has_genomic:
+                        # Check cache first
+                        if lab_id not in choice_cache.metadata_choices:
+                            choices = prompt_duplicate_handling(lab_id, has_metadata, has_genomic)
+                            choice_cache.metadata_choices[lab_id] = choices.get('metadata_action', DuplicateAction.SKIP)
+                            choice_cache.genomic_choices[lab_id] = choices.get('genomic_action', DuplicateAction.SKIP)
+                            
+                            # Check if user wants to stop
+                            if choice_cache.metadata_choices[lab_id] == DuplicateAction.STOP or choice_cache.genomic_choices[lab_id] == DuplicateAction.STOP:
+                                print(f"\n⚠ Bulk import stopped by user")
+                                session.rollback()
+                                results.print_summary()
+                                return
+                        
+                        metadata_action = choice_cache.metadata_choices[lab_id]
+                        genomic_action = choice_cache.genomic_choices[lab_id]
+                    
+                    # Import metadata based on user choice
+                    if metadata_action == DuplicateAction.SKIP:
+                        print(f"  ⓘ Metadata: Skipping (keeping existing data)")
+                        results.metadata_skipped.append((lab_id, "Skipped"))
+                    else:
+                        # Import metadata using UPSERT (automatically replaces if exists)
+                        try:
+                            import_metadata_row(session, row, lab_id, metadata_columns, column_mapping)
+                            results.metadata_imported += 1
+                            print(f"  ✓ Metadata imported")
+                        except Exception as e:
+                            print(f"  ✗ Metadata import failed: {e}")
+                            results.metadata_failed.append((lab_id, str(e)))
+                            session.rollback()
+                            raise  # Re-raise to abort transaction
+                    
+                    # Import FASTA if path is provided
+                    if genomic_action == DuplicateAction.SKIP:
+                        print(f"  ⓘ Genomic: Skipping (keeping existing data)")
+                        results.fasta_skipped.append((lab_id, "Skipped"))
+                    elif pd.isna(fasta_path_col) or str(fasta_path_col).strip() == "":
+                        print(f"  ⓘ No FASTA file specified")
+                        results.fasta_skipped.append((lab_id, "No file path provided"))
+                    else:
+                        # Resolve path
+                        try:
+                            resolved_path, exists = resolve_fasta_path(
+                                str(fasta_path_col), 
+                                excel_dir
+                            )
+                        except ValueError as e:
+                            print(f"  ✗ Invalid path: {e}")
+                            results.fasta_failed.append((lab_id, str(e)))
+                            session.rollback()
+                            raise
+                        
+                        if not exists:
+                            print(f"  ⚠ FASTA file not found: {resolved_path}")
+                            results.fasta_skipped.append((lab_id, f"File not found: {resolved_path}"))
+                        else:
+                            # Import FASTA using UPSERT (automatically replaces if exists)
+                            try:
+                                import_fasta_batch(session, resolved_path, lab_id)
+                                results.fasta_imported += 1
+                                print(f"  ✓ FASTA imported")
+                            except Exception as e:
+                                print(f"  ✗ FASTA import failed: {e}")
+                                results.fasta_failed.append((lab_id, str(e)))
+                                session.rollback()
+                                raise
                 
-                # Import metadata
-                try:
-                    import_metadata_row(session, row, lab_id)
-                    results.metadata_imported += 1
-                    print(f"  ✓ Metadata imported")
-                except Exception as e:
-                    print(f"  ✗ Metadata import failed: {e}")
-                    results.metadata_failed.append((lab_id, str(e)))
-                    continue
+                # Commit entire transaction at the end
+                session.commit()
                 
-                # Import FASTA if path is provided
-                if pd.isna(fasta_path_col) or str(fasta_path_col).strip() == "":
-                    print(f"  ⓘ No FASTA file specified")
-                    results.fasta_skipped.append((lab_id, "No file path provided"))
-                    continue
-                
-                # Resolve path
-                try:
-                    resolved_path, exists = resolve_fasta_path(
-                        str(fasta_path_col), 
-                        excel_dir
-                    )
-                except ValueError as e:
-                    print(f"  ✗ Invalid path: {e}")
-                    results.fasta_failed.append((lab_id, str(e)))
-                    continue
-                
-                if not exists:
-                    print(f"  ⚠ FASTA file not found: {resolved_path}")
-                    results.fasta_skipped.append((lab_id, f"File not found: {resolved_path}"))
-                    continue
-                
-                # Import FASTA
-                try:
-                    import_fasta_batch(session, resolved_path, lab_id)
-                    results.fasta_imported += 1
-                    print(f"  ✓ FASTA imported")
-                except Exception as e:
-                    print(f"  ✗ FASTA import failed: {e}")
-                    results.fasta_failed.append((lab_id, str(e)))
-            
-            session.commit()
+            except Exception as e:
+                print(f"\n✗ Error during bulk import: {e}")
+                import traceback
+                traceback.print_exc()
         
         # Print summary
         results.print_summary()
@@ -533,6 +661,7 @@ def import_bulk_with_fasta(excel_file_path):
         print(f"\n✗ Error during bulk import: {e}")
         import traceback
         traceback.print_exc()
+
 
 def import_fasta_from_folder(folder_path, recursive=False):
     """

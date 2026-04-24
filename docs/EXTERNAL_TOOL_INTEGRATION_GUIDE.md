@@ -1,10 +1,10 @@
 # External Tool Integration Guide
 ## How to Add Export Formats for External Tools
 
-**Purpose:** This guide shows how to add new export formats (like FASTA for Barrnap) to the relational database, making it easy to prepare data for any external tool or analysis pipeline.
+**Purpose:** This guide shows how to add new export formats (like FASTA for phylogenetic tools such as Sourmash) to the relational database, making it easy to prepare data for any external tool or analysis pipeline.
 
 **What You'll Learn:**
-- How the FASTA export was added for Barrnap
+- How the FASTA export was designed for phylogenetic tools
 - Pattern for adding any new export format
 - How to update the user menu
 - Template for your own tool integrations
@@ -14,7 +14,7 @@
 ## Quick Overview: What We Did
 
 ### The Problem
-Barrnap needs pure FASTA format:
+Phylogenetic tools like Sourmash need pure FASTA format:
 ```
 >sequence_header
 ACGTACGTACGT...
@@ -32,8 +32,8 @@ Added a new `export_fasta()` function that exports **only sequences** in proper 
 
 ### Step 1: Identify Your Tool's Requirements
 
-**For Barrnap:**
-- Input: FASTA file with full genome sequences
+**For Sourmash (phylogenetic analysis):**
+- Input: FASTA file with genomic sequences
 - Format: Standard FASTA (header + sequence in 80-char lines)
 - Metadata: Not needed (tool doesn't use it)
 
@@ -79,7 +79,7 @@ def export_[TOOLNAME](df, file_path, append=False):
 ```python
 def export_fasta(df, file_path, append=False):
     """
-    Export FASTA sequences only (pure FASTA format for tools like Barrnap).
+    Export FASTA sequences only (pure FASTA format for phylogenetic tools).
     Strips out metadata and exports only sequences with headers.
     
     Args:
@@ -148,7 +148,7 @@ elif fmt == '3':
 
 **Add your format:**
 ```python
-fmt = input("Export as [1] CSV, [2] Excel, [3] TXT, or [4] FASTA (for Barrnap)? (1/2/3/4): ").strip()
+    fmt = input("Export as [1] CSV, [2] Excel, [3] TXT, or [4] FASTA (for phylogenetic tools)? (1/2/3/4): ").strip()
 if fmt == '1':
     ext, file_type = 'csv', 'csv'
 elif fmt == '2':
@@ -161,7 +161,7 @@ elif fmt == '4':
 
 **Pattern for multiple tools:**
 ```python
-fmt = input("Export as [1] CSV, [2] Excel, [3] TXT, [4] FASTA (Barrnap), [5] GFF (Annotations)? (1/2/3/4/5): ").strip()
+    fmt = input("Export as [1] CSV, [2] Excel, [3] TXT, [4] FASTA (Phylogenetic tools), [5] Custom format? (1/2/3/4/5): ").strip()
 if fmt == '1':
     ext, file_type = 'csv', 'csv'
 elif fmt == '2':
@@ -212,9 +212,9 @@ else:
 
 ---
 
-## Complete Example: Adding GFF Export for Barrnap Output
+## Complete Example: Adding Custom Export Format for Phylogenetic Analysis
 
-Let's say after running Barrnap, you want to export GFF annotations.
+Let's say after preparing sequences with Sourmash, you want to export additional metadata.
 
 ### Step 1: Create the function
 

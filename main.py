@@ -4,7 +4,7 @@ from modules.search import search_db
 from modules.db_info import get_database_info  # Import the new function
 from modules.delete import delete_lab_id, delete_metadata, delete_fasta
 from modules.delete import display_lab_id_data
-from modules.export_utils import export_table, export_pretty, export_fasta
+from modules.export_utils import export_table, export_pretty, export_fasta, export_fasta_per_lab_id
 import os
 import sqlite3
 
@@ -109,14 +109,34 @@ def search_data_ui():
 
 
 def export_prompt(results):
+    """
+    Export search results in various formats.
+    Automatically detects multi-lab FASTA exports and creates separate files per lab_id.
+    """
     if results.empty:
         return
     choice = input("\nWould you like to export these results? (y/n): ").strip().lower()
     if choice != 'y':
         return
 
-    # Choose format
-    fmt = input("Export as [1] CSV, [2] Excel, [3] TXT, or [4] FASTA (for Barrnap)? (1/2/3/4): ").strip()
+    # MULTI-LAB DETECTION: Check if we have FASTA data for multiple lab_ids
+    has_fasta = False
+    unique_lab_ids = set()
+    
+    if 'type' in results.columns and 'lab_id' in results.columns:
+        fasta_data = results[results['type'] == 'fasta']
+        has_fasta = not fasta_data.empty
+        if has_fasta:
+            unique_lab_ids = set(fasta_data['lab_id'].unique())
+    
+    # PROMPT: Choose export format
+    if has_fasta and len(unique_lab_ids) > 1:
+        print(f"\n[Multi-Lab Export Mode] Detected {len(unique_lab_ids)} genomes: {', '.join(sorted(unique_lab_ids))}")
+        fmt = input("Export as [1] CSV, [2] Excel, [3] TXT, or [4] FASTA per Lab ID? (1/2/3/4): ").strip()
+    else:
+        fmt = input("Export as [1] CSV, [2] Excel, [3] TXT, or [4] FASTA? (1/2/3/4): ").strip()
+    
+    # Parse format choice
     if fmt == '1':
         ext, file_type = 'csv', 'csv'
     elif fmt == '2':
@@ -129,30 +149,50 @@ def export_prompt(results):
         print("Invalid format, exporting as CSV.")
         ext, file_type = 'csv', 'csv'
 
-    # Choose location
-    folder = input("Export to [d]efault folder (exported_files/) or [c]ustom path? (d/c): ").strip().lower()
-    if folder == 'd':
-        os.makedirs('exported_files', exist_ok=True)
-        file_name = input(f"Enter file name (.{ext} will be added if not present): ").strip()
-        if not file_name.endswith(f".{ext}"):
-            file_name += f".{ext}"
-        file_path = os.path.join('exported_files', file_name)
+    # EXPORT LOGIC: Route to appropriate export function
+    
+    # Multi-lab FASTA export: Create separate file per lab_id
+    if file_type == 'fasta' and has_fasta and len(unique_lab_ids) > 1:
+        print(f"\n→ Creating {len(unique_lab_ids)} separate FASTA files (one per Uehling ID)")
+        print(f"→ Each file formatted for phylogenetic analysis pipeline\n")
+        
+        # Get output folder
+        folder = input("Export to [d]efault folder (exported_files/) or [c]ustom path? (d/c): ").strip().lower()
+        if folder == 'd':
+            os.makedirs('exported_files', exist_ok=True)
+            folder_name = input("Enter folder name (will be created inside exported_files/): ").strip()
+            folder_path = os.path.join('exported_files', folder_name)
+        else:
+            folder_path = input("Enter full folder path: ").strip()
+        
+        # Execute per-lab export
+        export_fasta_per_lab_id(results, folder_path)
+    
+    # Standard single-file exports: CSV, Excel, TXT, or single FASTA
     else:
-        file_path = input(f"Enter full file path (including .{ext}): ").strip()
+        folder = input("Export to [d]efault folder (exported_files/) or [c]ustom path? (d/c): ").strip().lower()
+        if folder == 'd':
+            os.makedirs('exported_files', exist_ok=True)
+            file_name = input(f"Enter file name (.{ext} will be added if not present): ").strip()
+            if not file_name.endswith(f".{ext}"):
+                file_name += f".{ext}"
+            file_path = os.path.join('exported_files', file_name)
+        else:
+            file_path = input(f"Enter full file path (including .{ext}): ").strip()
 
-    # Append or overwrite
-    append = False
-    if os.path.exists(file_path):
-        ao = input("File exists. [a]ppend or [o]verwrite? (a/o): ").strip().lower()
-        append = (ao == 'a')
+        # Handle existing files
+        append = False
+        if os.path.exists(file_path):
+            ao = input("File exists. [a]ppend or [o]verwrite? (a/o): ").strip().lower()
+            append = (ao == 'a')
 
-    # Export
-    if file_type in ('csv', 'excel'):
-        export_table(results, file_path, file_type, append=append)
-    elif file_type == 'fasta':
-        export_fasta(results, file_path, append=append)
-    else:
-        export_pretty(results, file_path, append=append)
+        # Execute export based on file type
+        if file_type in ('csv', 'excel'):
+            export_table(results, file_path, file_type, append=append)
+        elif file_type == 'fasta':
+            export_fasta(results, file_path, append=append)
+        else:
+            export_pretty(results, file_path, append=append)
 
 def delete_data_ui():
     print("\n-- Delete Data --")

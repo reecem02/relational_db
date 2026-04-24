@@ -31,6 +31,8 @@ metadata_columns:
 - Location
 - Country
 - Primary Assembly Filename
+- Date of sample collection
+- Host Organism
 genomic_columns:
 - lab_id
 - key
@@ -39,5 +41,5 @@ genomic_columns:
 bulk_import_config:
   fasta_file_column: Primary Assembly Filename
   alternative_fasta_columns: null
-  path_resolution: excel_dir
+  path_resolution: absolute
   missing_file_behavior: skip

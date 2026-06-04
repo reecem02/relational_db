@@ -253,3 +253,15 @@ Edit this file to customize your import settings.
 Defines the database location and file paths.
 
 ---
+
+## License
+
+This software is licensed under the MIT License.
+
+- See LICENSE for the full license text.
+- See THIRD_PARTY_NOTICES.md for third-party dependency license information.
+
+## Thesis License Note
+
+The software license in this repository (MIT) is separate from the thesis document license.
+For thesis submission metadata, use the license you selected for the written thesis (CC BY 4.0).

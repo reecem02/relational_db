@@ -47,11 +47,17 @@ Copy or move the exported `.fasta` files into the `Assemblies/` directory inside
 
 ## Stage 2: Build the Similarity Tree with Sourmash
 
-From the `WholeGenomeSimilarityTree/` directory, submit the SLURM job:
-
+### On HPC Cluster (with SLURM):
 ```bash
 cd /your/path/to/WholeGenomeSimilarityTree
 sbatch Run_Jupyter_Sourmash.sh
+```
+
+### On Local Machine (Windows/Mac/Linux):
+```bash
+cd /your/path/to/WholeGenomeSimilarityTree
+source C:/venv/Scripts/activate
+jupyter nbconvert --to notebook --execute SourmashTreeWorkflow_FromAssemblyDirectory.ipynb
 ```
 
 The notebook will run automatically and:
@@ -74,8 +80,9 @@ The notebook will run automatically and:
 
 | Issue | Fix |
 |---|---|
+| `sbatch: command not found` | You're on a local machine without SLURM. Use `jupyter nbconvert --to notebook --execute SourmashTreeWorkflow_FromAssemblyDirectory.ipynb` instead |
 | No FASTA files exported | Confirm your search returned results with genomic data attached |
 | `BASE_DIR` error in notebook | Ensure `BASE_DIR` in the notebook matches your actual repo path |
 | SLURM job fails | Check the log: `run_notebook_Sourmash.<job_id>.out` in the repo directory |
-| Sourmash not found | Ensure Sourmash is installed and on your PATH (`sourmash --version`) |
+| Jupyter/Sourmash not found | Install them: `pip install jupyter sourmash` |
 | Empty `SourmashTrees/` | Verify `.fasta` files are present and non-empty in `Assemblies/` before running |
